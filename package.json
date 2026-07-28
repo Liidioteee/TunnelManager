@@ -1,0 +1,41 @@
+{
+  "name": "tunnel-manager",
+  "description": "Graphical interface for exposing localhost to the world",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Liidioteee/TunnelManager.git"
+  },
+  "author": "Liidioteee",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "dependencies": {
+    "debug": "^4.3.2",
+    "electron-store": "^11.0.2"
+  },
+  "devDependencies": {
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "build": {
+    "appId": "com.tunnel.manager",
+    "productName": "Tunnel Manager",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg"
+    }
+  }
+}
