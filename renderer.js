@@ -6,6 +6,7 @@ const tunnelsList = document.getElementById('tunnels-list');
 
 let currentConfigs = []; 
 let editingId = null;    
+const latestStatuses = {};
 
 addBtn.addEventListener('click', () => {
   editingId = null;
@@ -82,17 +83,19 @@ function renderTunnels(configs) {
       ? `<span class="meta-separator">•</span><span>Субдомен: <strong>${config.subdomain}</strong></span>` 
       : '';
 
+    const status = latestStatuses[config.id] || config.status || { type: 'info', message: 'Не активен' };
+
     card.innerHTML = `
       <div class="tunnel-info">
         <h3 class="card-title">
-          <span id="status-dot-${config.id}" class="status-dot ${config.status ? config.status.type : 'info'}"></span>
+          <span id="status-dot-${config.id}" class="status-dot ${status.type}"></span>
           ${config.name}
         </h3>
         <div class="card-meta">
           <span>Порт: <strong>${config.port}</strong></span>
           ${metaSubdomain}
           <span class="meta-separator">•</span>
-          <span id="status-text-${config.id}" class="status-message">${config.status ? config.status.message : 'Не активен'}</span>
+          <span id="status-text-${config.id}" class="status-message">${status.message}</span>
         </div>
         ${urlBlockHtml}
       </div>
@@ -166,6 +169,8 @@ window.deleteTunnel = async (id) => {
 };
 
 window.api.onTunnelStatus((data) => {
+  latestStatuses[data.id] = data.status;
+
   const dot = document.getElementById(`status-dot-${data.id}`);
   const text = document.getElementById(`status-text-${data.id}`);
   const toggle = document.getElementById(`switch-${data.id}`);
@@ -185,6 +190,10 @@ window.api.onTunnelStatus((data) => {
   if (config) {
     config.status = data.status;
   }
+});
+
+window.api.onConfigsUpdated((configs) => {
+  renderTunnels(configs);
 });
 
 loadTunnels();

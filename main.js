@@ -123,22 +123,36 @@ if (!gotTheLock) {
         });
       });
 
-      config.url = tunnel.url;
-      config.active = true;
-      store.set('configs', configs);
+      const currentConfigs = store.get('configs');
+      const currentConfig = currentConfigs.find(c => c.id === configId);
+      if (currentConfig) {
+        currentConfig.url = tunnel.url;
+        currentConfig.active = true;
+        store.set('configs', currentConfigs);
+      }
       
       tunnel.on('close', () => stopTunnel(configId));
+
+      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('configs-updated', getConfigsWithStatuses());
+      }
+      
       return tunnel.url;
     } catch (err) {
       if (!tunnel.closed) {
-        console.error('Ошибка запуска туннеля:', err);
-        config.active = false;
-        store.set('configs', configs);
+        const currentConfigs = store.get('configs');
+        const currentConfig = currentConfigs.find(c => c.id === configId);
+        if (currentConfig) {
+          currentConfig.active = false;
+          currentConfig.url = '';
+          store.set('configs', currentConfigs);
+        }
         delete activeTunnels[configId];
         
         tunnelStatuses[configId] = { type: 'error', message: `Ошибка: ${err.message}` };
         if (mainWindow && !mainWindow.webContents.isDestroyed()) {
           mainWindow.webContents.send('tunnel-status', { id: configId, status: tunnelStatuses[configId] });
+          mainWindow.webContents.send('configs-updated', getConfigsWithStatuses());
         }
         throw err;
       }
@@ -226,12 +240,18 @@ if (!gotTheLock) {
   });
 
   ipcMain.handle('toggle-tunnel', async (event, id, state) => {
-    if (state) {
-      try {
-        await startTunnel(id);
-      } catch (err) {
-        console.error(err);
+    const configs = store.get('configs');
+    const config = configs.find(c => c.id === id);
+    if (config) {
+      config.active = state;
+      if (!state) {
+        config.url = '';
       }
+      store.set('configs', configs);
+    }
+
+    if (state) {
+      startTunnel(id).catch(console.error);
     } else {
       stopTunnel(id);
     }
