@@ -546,6 +546,11 @@ clone-response@^1.0.2:
   dependencies:
     mimic-response "^1.0.0"
 
+cloudflared@^0.5.1:
+  version "0.5.3"
+  resolved "https://registry.npmjs.org/cloudflared/-/cloudflared-0.5.3.tgz"
+  integrity sha512-v2Hxnm9uZsc3ub4hf7xEzn1MSovY2mGZR2SB/xrvMuV6l+YfFLbE8KYPNuEdpFOS6sWldOvy/bpNhKvMQKsM+Q==
+
 color-convert@^2.0.1:
   version "2.0.1"
   dependencies:
