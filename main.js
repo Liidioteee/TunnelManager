@@ -1,7 +1,10 @@
-import { app, BrowserWindow, Tray, Menu, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, Tray, Menu, ipcMain, shell, dialog, Notification } from 'electron';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import fs from 'fs';
+import crypto from 'crypto';
+import { fileURLToPath, pathToFileURL } from 'url';
 import Store from 'electron-store';
+import QRCode from 'qrcode';
 import dns from 'dns';
 import net from 'net';
 import Tunnel from './lib/Tunnel.js';
@@ -12,19 +15,103 @@ dns.setDefaultResultOrder('ipv4first');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const APP_INDEX_URL = pathToFileURL(path.join(__dirname, 'index.html')).href;
 
 const gotTheLock = app.requestSingleInstanceLock();
 
 let mainWindow;
 let tray = null;
+let isQuitting = false;
 const activeTunnels = {};
-const startingTunnels = new Set(); 
+const startingTunnels = new Set();
 const tunnelStates = {};
+const requestStats = {};
 
 if (!gotTheLock) {
   app.quit();
 } else {
   const store = new Store();
+
+  if (!store.has('configs')) {
+    store.set('configs', []);
+  }
+
+  const defaultSettings = {
+    autoLaunch: false,
+    startMinimized: false,
+    closeToTray: true,
+    defaultProvider: 'lt',
+    notifications: true
+  };
+
+  if (!store.has('settings')) {
+    store.set('settings', defaultSettings);
+  }
+
+  function getSettings() {
+    return { ...defaultSettings, ...(store.get('settings') || {}) };
+  }
+
+  // Валидация и нормализация полей конфигурации.
+  // Возвращает null, если данные некорректны.
+  function sanitizeConfigInput({ name, port, subdomain, provider, localHost, localProtocol, skipTlsVerify } = {}) {
+    const portNum = parseInt(port, 10);
+    if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
+      return null;
+    }
+
+    // hostname / IPv4 / IPv6 без пробелов, слэшей и управляющих символов
+    const host = String(localHost || 'localhost').trim().toLowerCase() || 'localhost';
+    if (!/^[a-z0-9._:-]{1,253}$/.test(host)) {
+      return null;
+    }
+
+    const prov = provider === 'cf' ? 'cf' : 'lt';
+    const proto = localProtocol === 'https' ? 'https' : 'http';
+
+    let sub = String(subdomain || '').trim().toLowerCase()
+      .replace(/[^a-z0-9-]/g, '')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 63);
+
+    const nm = String(name || '').trim().slice(0, 60) || `Порт ${portNum}`;
+
+    return {
+      name: nm,
+      port: portNum.toString(),
+      subdomain: sub,
+      provider: prov,
+      localHost: host,
+      localProtocol: proto,
+      skipTlsVerify: skipTlsVerify !== false
+    };
+  }
+
+  function applyAutoLaunch(settings) {
+    try {
+      app.setLoginItemSettings({
+        openAtLogin: !!settings.autoLaunch,
+        openAsHidden: !!settings.startMinimized
+      });
+    } catch (err) {
+      logger.error(`Ошибка применения настроек автозапуска: ${err.message}`);
+    }
+  }
+
+  function showNotification(title, body) {
+    const settings = getSettings();
+    if (settings.notifications && Notification.isSupported()) {
+      try {
+        new Notification({
+          title,
+          body,
+          icon: path.join(__dirname, 'icon.png')
+        }).show();
+      } catch (err) {
+        logger.warn(`Ошибка показа уведомления: ${err.message}`);
+      }
+    }
+  }
 
   app.on('second-instance', () => {
     if (mainWindow) {
@@ -33,10 +120,6 @@ if (!gotTheLock) {
       mainWindow.focus();
     }
   });
-
-  if (!store.has('configs')) {
-    store.set('configs', []);
-  }
 
   function computeStatus(configId, isActiveInStore) {
     if (!isActiveInStore) {
@@ -69,26 +152,36 @@ if (!gotTheLock) {
   }
 
   function getConfigsWithStatuses() {
-    const configs = store.get('configs');
+    const configs = store.get('configs') || [];
     return configs.map(c => {
       const status = computeStatus(c.id, c.active);
-      return { ...c, status };
+      return {
+        ...c,
+        status,
+        stats: requestStats[c.id] || { count: 0, lastMethod: '', lastPath: '', lastTime: null }
+      };
     });
   }
 
   function broadcastStatus(configId) {
     if (mainWindow && !mainWindow.webContents.isDestroyed()) {
-      const config = store.get('configs').find(c => c.id === configId);
+      const config = (store.get('configs') || []).find(c => c.id === configId);
       const isActive = config ? config.active : false;
       const status = computeStatus(configId, isActive);
       mainWindow.webContents.send('tunnel-status', { id: configId, status });
     }
   }
 
-  function checkLocalPort(port) {
+  function broadcastConfigs() {
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send('configs-updated', getConfigsWithStatuses());
+    }
+  }
+
+  function checkLocalPort(port, host = '127.0.0.1') {
     return new Promise((resolve) => {
       const socket = new net.Socket();
-      socket.setTimeout(500);
+      socket.setTimeout(600);
       socket.once('connect', () => {
         socket.destroy();
         resolve(true);
@@ -101,26 +194,71 @@ if (!gotTheLock) {
         socket.destroy();
         resolve(false);
       });
-      socket.connect(port, '127.0.0.1');
+      socket.connect(port, host === 'localhost' ? '127.0.0.1' : host);
     });
   }
 
+  function handleTunnelRequest(configId, req) {
+    if (!requestStats[configId]) {
+      requestStats[configId] = { count: 0, lastMethod: '', lastPath: '', lastTime: null };
+    }
+    requestStats[configId].count++;
+
+    // Данные приходят из строк внешних HTTP-запросов — оставляем только
+    // известный метод и путь без query string (там могут быть токены)
+    const rawMethod = String((req && req.method) || '').toUpperCase();
+    requestStats[configId].lastMethod = /^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)$/.test(rawMethod) ? rawMethod : 'REQ';
+    requestStats[configId].lastPath = String((req && req.path) || '/').split('?')[0].slice(0, 120);
+    requestStats[configId].lastTime = Date.now();
+
+    if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send('request-stats', {
+        id: configId,
+        stats: requestStats[configId]
+      });
+    }
+  }
+
   function createWindow() {
+    const settings = getSettings();
     mainWindow = new BrowserWindow({
-      width: 600,
-      height: 700,
+      width: 620,
+      height: 740,
+      minWidth: 480,
+      minHeight: 500,
       icon: path.join(__dirname, 'icon.png'),
+      show: !settings.startMinimized,
       webPreferences: {
         preload: path.join(__dirname, 'preload.cjs'),
         contextIsolation: true,
-        nodeIntegration: false
+        nodeIntegration: false,
+        sandbox: true
       }
     });
 
     mainWindow.loadFile('index.html');
 
+    // Все window.open / target="_blank" отдаём системному браузеру,
+    // новые Electron-окна с нашим preload не открываются
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+      const u = String(url || '');
+      if (/^https?:\/\//i.test(u)) {
+        shell.openExternal(u);
+      }
+      return { action: 'deny' };
+    });
+
+    // Блокируем любую навигацию рендерера, кроме собственного index.html —
+    // разрешать произвольные file:// небезопасно (доступ к чужим локальным файлам)
+    mainWindow.webContents.on('will-navigate', (event, url) => {
+      if (String(url || '') !== APP_INDEX_URL) {
+        event.preventDefault();
+      }
+    });
+
     mainWindow.on('close', (event) => {
-      if (!app.isQuiting) {
+      const currentSettings = getSettings();
+      if (!isQuitting && currentSettings.closeToTray) {
         event.preventDefault();
         mainWindow.hide();
       }
@@ -130,22 +268,34 @@ if (!gotTheLock) {
   function createTray() {
     tray = new Tray(path.join(__dirname, 'icon.png'));
     const contextMenu = Menu.buildFromTemplate([
-      { label: 'Открыть настройки', click: () => mainWindow.show() },
+      { label: 'Открыть Tunnel Manager', click: () => {
+          if (mainWindow) {
+            mainWindow.show();
+            mainWindow.focus();
+          }
+        }
+      },
+      { type: 'separator' },
+      { label: 'Остановить все туннели', click: () => {
+          const configs = store.get('configs') || [];
+          configs.forEach(c => { if (c.active) stopTunnel(c.id); });
+        }
+      },
+      { type: 'separator' },
       { label: 'Выход', click: () => {
-          app.isQuiting = true;
+          isQuitting = true;
+          stopAllTunnels();
           app.quit();
         }
       }
     ]);
-    tray.setToolTip('LocalTunnel Manager');
+    tray.setToolTip('Tunnel Manager');
     tray.setContextMenu(contextMenu);
-    tray.on('click', () => mainWindow.show());
-  }
-
-  function setupAutoLaunch() {
-    app.setLoginItemSettings({
-      openAtLogin: true,
-      openAsHidden: true
+    tray.on('click', () => {
+      if (mainWindow) {
+        mainWindow.show();
+        mainWindow.focus();
+      }
     });
   }
 
@@ -154,7 +304,7 @@ if (!gotTheLock) {
       return;
     }
 
-    const configs = store.get('configs');
+    const configs = store.get('configs') || [];
     const config = configs.find(c => c.id === configId);
     if (!config) return;
 
@@ -168,20 +318,32 @@ if (!gotTheLock) {
     broadcastStatus(configId);
 
     const provider = config.provider || 'lt';
+    const localHost = config.localHost || 'localhost';
+    const localProtocol = config.localProtocol || 'http';
     let tunnel;
 
     if (provider === 'cf') {
       tunnel = new CFTunnel({
-        port: parseInt(config.port)
+        port: parseInt(config.port, 10),
+        localHost,
+        localProtocol,
+        skipTlsVerify: config.skipTlsVerify !== false
       });
     } else {
       tunnel = new Tunnel({
-        port: parseInt(config.port),
-        subdomain: config.subdomain || undefined
+        port: parseInt(config.port, 10),
+        subdomain: config.subdomain || undefined,
+        local_host: localHost,
+        local_https: localProtocol === 'https',
+        allow_invalid_cert: config.skipTlsVerify !== false
       });
     }
 
     activeTunnels[configId] = tunnel;
+
+    tunnel.on('request', (req) => {
+      handleTunnelRequest(configId, req);
+    });
 
     tunnel.on('status', async (status) => {
       const state = tunnelStates[configId];
@@ -190,7 +352,7 @@ if (!gotTheLock) {
       if (status.type === 'success') {
         state.connectionState = 'connected';
         state.connectionMessage = status.message;
-        const isPortOpen = await checkLocalPort(parseInt(config.port));
+        const isPortOpen = await checkLocalPort(parseInt(config.port, 10), localHost);
         state.localPortState = isPortOpen ? 'open' : 'closed';
       } else if (status.type === 'error') {
         state.connectionState = 'error';
@@ -221,44 +383,58 @@ if (!gotTheLock) {
 
       tunnel.startTime = Date.now();
 
-      const currentConfigs = store.get('configs');
+      const currentConfigs = store.get('configs') || [];
       const currentConfig = currentConfigs.find(c => c.id === configId);
       if (currentConfig) {
         currentConfig.url = tunnel.url;
         currentConfig.active = true;
         store.set('configs', currentConfigs);
       }
-      
-      tunnel.on('close', () => stopTunnel(configId));
 
-      if (mainWindow && !mainWindow.webContents.isDestroyed()) {
-        mainWindow.webContents.send('configs-updated', getConfigsWithStatuses());
-      }
-      
+      tunnel.on('close', () => {
+        stopTunnel(configId);
+      });
+
+      showNotification('Туннель запущен', `${config.name}: ${tunnel.url}`);
+      broadcastConfigs();
       return tunnel.url;
     } catch (err) {
-      if (!tunnel.closed) {
-        const currentConfigs = store.get('configs');
-        const currentConfig = currentConfigs.find(c => c.id === configId);
-        if (currentConfig) {
-          currentConfig.active = false;
-          currentConfig.url = '';
-          store.set('configs', currentConfigs);
-        }
-        delete activeTunnels[configId];
-        
-        tunnelStates[configId] = {
-          connectionState: 'error',
-          connectionMessage: `Ошибка: ${err.message}`,
-          localPortState: 'unknown'
-        };
-        broadcastStatus(configId);
+      delete activeTunnels[configId];
 
-        if (mainWindow && !mainWindow.webContents.isDestroyed()) {
-          mainWindow.webContents.send('configs-updated', getConfigsWithStatuses());
-        }
-        throw err;
+      // Сбрасываем сохранённое состояние, даже если туннель был закрыт
+      // принудительно (иначе config.active мог остаться true до перезапуска)
+      const currentConfigs = store.get('configs') || [];
+      const currentConfig = currentConfigs.find(c => c.id === configId);
+      if (currentConfig) {
+        currentConfig.active = false;
+        currentConfig.url = '';
+        store.set('configs', currentConfigs);
       }
+
+      if (tunnel.closed) {
+        // Запуск отменён (пользователь остановил туннель во время старта) —
+        // stopTunnel уже выставил состояние, повторная ошибка не нужна
+        if (!tunnelStates[configId] || tunnelStates[configId].connectionState !== 'stopped') {
+          tunnelStates[configId] = {
+            connectionState: 'stopped',
+            connectionMessage: 'Не активен',
+            localPortState: 'unknown'
+          };
+        }
+        broadcastStatus(configId);
+        broadcastConfigs();
+        logger.warn(`Запуск туннеля ${configId} отменён до завершения`);
+        return;
+      }
+
+      tunnelStates[configId] = {
+        connectionState: 'error',
+        connectionMessage: `Ошибка: ${err.message}`,
+        localPortState: 'unknown'
+      };
+      broadcastStatus(configId);
+      broadcastConfigs();
+      throw err;
     } finally {
       startingTunnels.delete(configId);
     }
@@ -267,14 +443,14 @@ if (!gotTheLock) {
   function stopTunnel(configId) {
     const tunnel = activeTunnels[configId];
     if (tunnel) {
-      delete activeTunnels[configId]; 
+      delete activeTunnels[configId];
       try {
-        tunnel.close(); 
+        tunnel.close();
       } catch (err) {
         logger.error(`Ошибка при остановке туннеля ${configId}: ${err.message}`);
       }
     }
-    
+
     tunnelStates[configId] = {
       connectionState: 'stopped',
       connectionMessage: 'Не активен',
@@ -282,28 +458,50 @@ if (!gotTheLock) {
     };
     broadcastStatus(configId);
 
-    const configs = store.get('configs');
+    const configs = store.get('configs') || [];
     const config = configs.find(c => c.id === configId);
     if (config) {
       config.active = false;
       config.url = '';
       store.set('configs', configs);
     }
+    broadcastConfigs();
   }
+
+  function stopAllTunnels() {
+    for (const id of Object.keys(activeTunnels)) {
+      try {
+        stopTunnel(id);
+      } catch (err) {
+        logger.error(`Ошибка при остановке туннеля ${id} (stopAllTunnels): ${err.message}`);
+      }
+    }
+  }
+
+  app.on('before-quit', () => {
+    isQuitting = true;
+    stopAllTunnels();
+  });
+
+  app.on('will-quit', () => {
+    stopAllTunnels();
+  });
 
   app.whenReady().then(() => {
     logger.info('Приложение запущено и готово к работе');
+    const settings = getSettings();
+    applyAutoLaunch(settings);
     createWindow();
     createTray();
-    setupAutoLaunch();
 
-    const configs = store.get('configs');
+    const configs = store.get('configs') || [];
     configs.forEach(config => {
       if (config.active) {
         startTunnel(config.id).catch(err => logger.error(`Ошибка автозапуска туннеля ${config.id}: ${err.message}`));
       }
     });
 
+    // Периодическое обновление времени работы
     setInterval(() => {
       if (!mainWindow || mainWindow.webContents.isDestroyed()) return;
       const uptimes = {};
@@ -315,71 +513,85 @@ if (!gotTheLock) {
       mainWindow.webContents.send('uptimes-updated', uptimes);
     }, 1000);
 
+    // Параллельная неблокирующая проверка доступности локальных портов
     setInterval(async () => {
-      const configs = store.get('configs');
-      let updated = false;
-
-      for (const config of configs) {
+      const currentConfigs = store.get('configs') || [];
+      const connectedConfigs = currentConfigs.filter(config => {
         const tunnelInstance = activeTunnels[config.id];
         const state = tunnelStates[config.id];
-        
-        if (tunnelInstance && tunnelInstance.startTime && state && state.connectionState === 'connected') {
-          const isPortOpen = await checkLocalPort(parseInt(config.port));
-          const newState = isPortOpen ? 'open' : 'closed';
-          
-          if (state.localPortState !== newState) {
-            state.localPortState = newState;
-            updated = true;
-            broadcastStatus(config.id);
-          }
-        }
-      }
+        return tunnelInstance && tunnelInstance.startTime && state && state.connectionState === 'connected';
+      });
 
-      if (updated && mainWindow && !mainWindow.webContents.isDestroyed()) {
-        mainWindow.webContents.send('configs-updated', getConfigsWithStatuses());
+      if (connectedConfigs.length === 0) return;
+
+      let hasChanges = false;
+      await Promise.allSettled(connectedConfigs.map(async (config) => {
+        const isPortOpen = await checkLocalPort(parseInt(config.port, 10), config.localHost || 'localhost');
+        const newState = isPortOpen ? 'open' : 'closed';
+        const state = tunnelStates[config.id];
+        if (state && state.localPortState !== newState) {
+          state.localPortState = newState;
+          hasChanges = true;
+          broadcastStatus(config.id);
+        }
+      }));
+
+      if (hasChanges) {
+        broadcastConfigs();
       }
     }, 3000);
   });
 
+  // --- IPC ОБРАБОТЧИКИ ---
+
   ipcMain.handle('get-configs', () => getConfigsWithStatuses());
 
-  ipcMain.handle('add-config', (event, { name, port, subdomain, provider }) => {
-    const configs = store.get('configs');
+  ipcMain.handle('add-config', (event, rawConfig) => {
+    const safe = sanitizeConfigInput(rawConfig);
+    if (!safe) {
+      throw new Error('Некорректные параметры конфигурации (порт, хост или протокол)');
+    }
+
+    const configs = store.get('configs') || [];
     const newConfig = {
-      id: Date.now().toString(),
-      name: name.trim() || `Порт ${port}`,
-      port,
-      subdomain: subdomain ? subdomain.trim() : '',
-      provider: provider || 'lt',
+      id: `${Date.now()}-${crypto.randomUUID()}`,
+      ...safe,
       active: false,
-      url: ''
+      url: '',
+      createdAt: Date.now()
     };
     configs.push(newConfig);
     store.set('configs', configs);
-    logger.info(`Создана конфигурация: ${newConfig.name} (${provider || 'lt'})`);
+    logger.info(`Создана конфигурация: ${newConfig.name} (${newConfig.provider})`);
     return getConfigsWithStatuses();
   });
 
-  ipcMain.handle('update-config', (event, { id, name, port, subdomain, provider }) => {
-    stopTunnel(id);
-    const configs = store.get('configs');
-    const config = configs.find(c => c.id === id);
+  ipcMain.handle('update-config', (event, rawConfig) => {
+    if (!rawConfig || !rawConfig.id) {
+      throw new Error('Некорректный запрос на обновление');
+    }
+
+    const safe = sanitizeConfigInput(rawConfig);
+    if (!safe) {
+      throw new Error('Некорректные параметры конфигурации (порт, хост или протокол)');
+    }
+
+    stopTunnel(rawConfig.id);
+    const configs = store.get('configs') || [];
+    const config = configs.find(c => c.id === rawConfig.id);
     if (config) {
-      config.name = name.trim() || `Порт ${port}`;
-      config.port = port;
-      config.subdomain = subdomain ? subdomain.trim() : '';
-      config.provider = provider || 'lt';
-      config.active = false; 
-      config.url = '';
+      Object.assign(config, safe, { active: false, url: '' });
       store.set('configs', configs);
-      logger.info(`Конфигурация ${id} успешно обновлена: ${config.name}`);
+      logger.info(`Конфигурация ${rawConfig.id} обновлена: ${config.name}`);
     }
     return getConfigsWithStatuses();
   });
 
   ipcMain.handle('delete-config', (event, id) => {
     stopTunnel(id);
-    let configs = store.get('configs');
+    delete requestStats[id];
+    delete tunnelStates[id];
+    let configs = store.get('configs') || [];
     configs = configs.filter(c => c.id !== id);
     store.set('configs', configs);
     logger.info(`Конфигурация ${id} удалена`);
@@ -387,7 +599,7 @@ if (!gotTheLock) {
   });
 
   ipcMain.handle('toggle-tunnel', async (event, id, state) => {
-    const configs = store.get('configs');
+    const configs = store.get('configs') || [];
     const config = configs.find(c => c.id === id);
     if (config) {
       config.active = state;
@@ -405,14 +617,10 @@ if (!gotTheLock) {
     return getConfigsWithStatuses();
   });
 
-  ipcMain.handle('open-log-folder', () => {
-    logger.openFolder();
-  });
-
   ipcMain.handle('batch-toggle', async (event, { ids, state }) => {
     logger.info(`Пакетное переключение состояния (${state ? 'Вкл' : 'Выкл'}) для: ${ids.join(', ')}`);
-    const configs = store.get('configs');
-    
+    const configs = store.get('configs') || [];
+
     for (const id of ids) {
       const config = configs.find(c => c.id === id);
       if (config) {
@@ -439,10 +647,138 @@ if (!gotTheLock) {
     logger.info(`Пакетное удаление конфигураций: ${ids.join(', ')}`);
     for (const id of ids) {
       stopTunnel(id);
+      delete requestStats[id];
+      delete tunnelStates[id];
     }
-    let configs = store.get('configs');
+    let configs = store.get('configs') || [];
     configs = configs.filter(c => !ids.includes(c.id));
     store.set('configs', configs);
     return getConfigsWithStatuses();
+  });
+
+  // Логи
+  ipcMain.handle('get-logs', () => logger.getRecentLogs());
+  ipcMain.handle('clear-logs', () => {
+    logger.clearRecentLogs();
+    return [];
+  });
+  ipcMain.handle('open-log-folder', () => logger.openFolder());
+
+  // Настройки
+  ipcMain.handle('get-settings', () => getSettings());
+  ipcMain.handle('save-settings', (event, newSettings) => {
+    const updated = { ...getSettings(), ...newSettings };
+    store.set('settings', updated);
+    applyAutoLaunch(updated);
+    logger.info('Настройки приложения обновлены');
+    return updated;
+  });
+
+  // Экспорт / Импорт конфигураций
+  ipcMain.handle('export-configs', async () => {
+    const configs = store.get('configs') || [];
+    const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
+      title: 'Экспорт конфигураций туннелей',
+      defaultPath: `tunnel-manager-backup-${new Date().toISOString().slice(0, 10)}.json`,
+      filters: [{ name: 'JSON Files', extensions: ['json'] }]
+    });
+
+    if (canceled || !filePath) return { success: false };
+
+    try {
+      const data = {
+        version: '1.1.0',
+        exportedAt: new Date().toISOString(),
+        configs: configs.map(c => ({
+          name: c.name,
+          port: c.port,
+          subdomain: c.subdomain,
+          provider: c.provider,
+          localHost: c.localHost,
+          localProtocol: c.localProtocol,
+          skipTlsVerify: c.skipTlsVerify !== false
+        }))
+      };
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+      logger.info(`Конфигурации экспортированы в ${filePath}`);
+      return { success: true, count: configs.length };
+    } catch (err) {
+      logger.error(`Ошибка экспорта: ${err.message}`);
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('import-configs', async () => {
+    const { filePaths, canceled } = await dialog.showOpenDialog(mainWindow, {
+      title: 'Импорт конфигураций туннелей',
+      properties: ['openFile'],
+      filters: [{ name: 'JSON Files', extensions: ['json'] }]
+    });
+
+    if (canceled || !filePaths || filePaths.length === 0) return { success: false };
+
+    try {
+      const rawData = fs.readFileSync(filePaths[0], 'utf8');
+      const parsed = JSON.parse(rawData);
+      const incomingList = Array.isArray(parsed) ? parsed : (parsed.configs || []);
+
+      if (!Array.isArray(incomingList) || incomingList.length === 0) {
+        return { success: false, error: 'Файл не содержит корректных конфигураций' };
+      }
+
+      const currentConfigs = store.get('configs') || [];
+      let importedCount = 0;
+      let skippedCount = 0;
+
+      for (const item of incomingList) {
+        // Каждая запись проходит ту же валидацию, что и ручной ввод;
+        // некорректные (в т.ч. чужеродные) записи пропускаем
+        const safe = sanitizeConfigInput(item);
+        if (!safe) {
+          skippedCount++;
+          continue;
+        }
+        currentConfigs.push({
+          id: `${Date.now()}-${crypto.randomUUID()}`,
+          ...safe,
+          active: false,
+          url: '',
+          createdAt: Date.now()
+        });
+        importedCount++;
+      }
+
+      if (importedCount === 0) {
+        return { success: false, error: 'Файл не содержит корректных конфигураций' };
+      }
+
+      store.set('configs', currentConfigs);
+      logger.info(`Успешно импортировано ${importedCount} конфигураций (пропущено: ${skippedCount})`);
+      return { success: true, count: importedCount, skipped: skippedCount, configs: getConfigsWithStatuses() };
+    } catch (err) {
+      logger.error(`Ошибка импорта: ${err.message}`);
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('open-external', (event, url) => {
+    const u = String(url || '');
+    if (/^https?:\/\//i.test(u)) {
+      shell.openExternal(u);
+    }
+  });
+
+  // Оффлайн-генерация QR-кода в main-процессе (data URL)
+  ipcMain.handle('generate-qrcode', async (event, text) => {
+    const value = String(text || '');
+    if (!value || value.length > 1000) {
+      throw new Error('Некорректные данные для QR-кода');
+    }
+    try {
+      return await QRCode.toDataURL(value, { width: 220, margin: 1, errorCorrectionLevel: 'M' });
+    } catch (err) {
+      logger.error(`Ошибка генерации QR-кода: ${err.message}`);
+      throw err;
+    }
   });
 }

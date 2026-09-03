@@ -2,36 +2,70 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>LocalTunnel & Cloudflare Manager</title>
+  <title>Tunnel Manager</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="app-container">
+    <!-- Header -->
     <header class="app-header">
       <div class="brand">
+        <div class="brand-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"></path></svg>
+        </div>
         <h1>Tunnel</h1>
         <span class="badge">Manager</span>
       </div>
       <div class="header-actions">
-        <button id="logs-btn" class="btn-icon" title="Открыть папку с логами">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+        <button id="import-export-btn" class="btn-icon" title="Резервное копирование (Экспорт / Импорт)" aria-label="Резервное копирование">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
         </button>
-        <button id="theme-btn" class="btn-icon" title="Сменить тему">
-          <svg id="theme-icon-sun" class="hidden" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
-          <svg id="theme-icon-moon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        <button id="logs-btn" class="btn-icon" title="Журнал логов" aria-label="Журнал логов">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
         </button>
-        <button id="add-btn" class="btn-primary-round" title="Добавить туннель">
+        <button id="settings-btn" class="btn-icon" title="Настройки приложения" aria-label="Настройки">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        </button>
+        <button id="theme-btn" class="btn-icon" title="Сменить тему оформления" aria-label="Сменить тему">
+          <svg id="theme-icon-sun" class="hidden" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+          <svg id="theme-icon-moon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        </button>
+        <button id="add-btn" class="btn-primary-round" title="Добавить новый туннель" aria-label="Добавить туннель">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
         </button>
       </div>
     </header>
 
+    <!-- Quick Stats Strip -->
+    <div id="stats-strip" class="stats-strip">
+      <div class="stat-pill">
+        <span class="stat-dot stat-dot-success"></span>
+        <span id="stat-active">0</span> активно
+      </div>
+      <div class="stat-pill">
+        <span class="stat-dot stat-dot-muted"></span>
+        <span id="stat-total">0</span> всего
+      </div>
+      <div class="stat-pill stat-pill-muted" id="stat-issues-pill" hidden>
+        <span class="stat-dot stat-dot-warning"></span>
+        <span id="stat-issues">0</span> с проблемами
+      </div>
+    </div>
+
+    <!-- Add / Edit Form Card -->
     <div id="add-form" class="add-form-card hidden">
-      <h3 id="form-title">Новый туннель</h3>
+      <div class="form-header-row">
+        <h3 id="form-title">Новый туннель</h3>
+        <button id="form-close-x" class="btn-action" title="Закрыть форму" aria-label="Закрыть форму">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
       <div class="form-grid-modern">
         <div class="form-group">
           <label for="name-input">Название проекта / конфигурации</label>
-          <input type="text" id="name-input" placeholder="например, Мой сайт, Тестовый API">
+          <input type="text" id="name-input" placeholder="например, Мой сайт, Backend API" maxlength="60">
         </div>
         <div class="form-row-2col">
           <div class="form-group">
@@ -48,7 +82,33 @@
         </div>
         <div id="subdomain-group" class="form-group">
           <label for="subdomain-input">Субдомен (опционально)</label>
-          <input type="text" id="subdomain-input" placeholder="например, my-app">
+          <input type="text" id="subdomain-input" placeholder="например, my-app (только a-z, 0-9, -)" maxlength="50">
+        </div>
+
+        <!-- Advanced Host & Protocol Toggle -->
+        <div class="advanced-toggle-row">
+          <button type="button" id="toggle-advanced-btn" class="btn-link-toggle">
+            <span id="advanced-arrow">▶</span> Расширенные параметры сети (хост, HTTPS)
+          </button>
+        </div>
+        <div id="advanced-settings-section" class="form-row-2col hidden">
+          <div class="form-group">
+            <label for="host-input">Локальный хост</label>
+            <input type="text" id="host-input" placeholder="localhost" value="localhost">
+          </div>
+          <div class="form-group">
+            <label for="protocol-select">Протокол локального сервиса</label>
+            <select id="protocol-select" class="form-select">
+              <option value="http">HTTP</option>
+              <option value="https">HTTPS (самоподписанные SSL)</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="settings-label-row" for="skip-tls-verify-checkbox" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="skip-tls-verify-checkbox" checked>
+            <span>Пропускать проверку TLS-сертификата локального сервера (HTTPS)</span>
+          </label>
         </div>
       </div>
       <div class="form-actions">
@@ -57,14 +117,22 @@
       </div>
     </div>
 
+    <!-- Search, Filters & Sorting Bar -->
     <div class="filters-container">
+      <div class="search-bar-row">
+        <div class="search-input-wrapper">
+          <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <input type="text" id="search-input" placeholder="Поиск по названию, порту, домену...">
+          <button id="search-clear-btn" class="btn-search-clear hidden" title="Очистить поиск">✕</button>
+        </div>
+      </div>
       <div class="filters-row">
         <div class="filter-group">
           <label for="filter-status">Статус:</label>
           <select id="filter-status" class="filter-select">
             <option value="all">Все</option>
             <option value="active">Активен</option>
-            <option value="warning">Локальный порт недоступен</option>
+            <option value="warning">Порт закрыт</option>
             <option value="inactive">Не активен</option>
           </select>
         </div>
@@ -76,12 +144,23 @@
             <option value="cf">Cloudflare</option>
           </select>
         </div>
+        <div class="filter-group">
+          <label for="sort-select">Сортировка:</label>
+          <select id="sort-select" class="filter-select">
+            <option value="created_desc">Сначала новые</option>
+            <option value="name_asc">По имени (А-Я)</option>
+            <option value="port_asc">По порту (1-9)</option>
+            <option value="active_first">Сначала активные</option>
+          </select>
+        </div>
         <button id="reset-filters" class="btn-reset" title="Сбросить все фильтры">Сбросить</button>
       </div>
     </div>
 
+    <!-- Main Tunnel List -->
     <main id="tunnels-list" class="tunnels-list"></main>
 
+    <!-- Batch Actions Bar -->
     <div id="batch-bar" class="batch-bar">
       <div class="batch-bar-content">
         <div class="batch-bar-left">
@@ -92,11 +171,166 @@
           <button id="batch-start-btn" class="btn-batch btn-batch-success" title="Включить выбранные">Вкл</button>
           <button id="batch-stop-btn" class="btn-batch btn-batch-warning" title="Выключить выбранные">Выкл</button>
           <button id="batch-delete-btn" class="btn-batch btn-batch-danger" title="Удалить выбранные">Удалить</button>
-          <button id="batch-cancel-btn" class="btn-batch btn-batch-secondary" title="Сбросить выбор">Сбросить</button>
+          <button id="batch-cancel-btn" class="btn-batch btn-batch-secondary" title="Сбросить выбор">✕</button>
         </div>
       </div>
     </div>
   </div>
+
+  <!-- Modal: QR Code Viewer -->
+  <div id="qr-modal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="qr-modal-title">QR-код туннеля</h3>
+        <button class="btn-action modal-close" data-close-modal="qr-modal" aria-label="Закрыть">✕</button>
+      </div>
+      <div class="modal-body qr-modal-body">
+        <div id="qr-code-container" class="qr-container"></div>
+        <div class="qr-url-box">
+          <span id="qr-modal-url" class="qr-url-text"></span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="qr-copy-btn" class="btn-secondary">Скопировать ссылку</button>
+        <button class="btn-primary" data-close-modal="qr-modal">Закрыть</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Log Viewer -->
+  <div id="logs-modal" class="modal-backdrop hidden">
+    <div class="modal-card modal-card-lg">
+      <div class="modal-header">
+        <div class="modal-title-with-badge">
+          <h3>Журнал работы</h3>
+          <span class="badge">Live Logs</span>
+        </div>
+        <div class="modal-header-actions">
+          <button id="logs-open-folder-btn" class="btn-secondary btn-sm" title="Открыть папку с файлами логов">В проводнике</button>
+          <button id="logs-clear-btn" class="btn-secondary btn-sm" title="Очистить экранные логи">Очистить</button>
+          <button class="btn-action modal-close" data-close-modal="logs-modal" aria-label="Закрыть">✕</button>
+        </div>
+      </div>
+      <div class="logs-filter-bar">
+        <input type="text" id="logs-search-input" class="logs-search" placeholder="Поиск по строкам лога...">
+        <select id="logs-level-filter" class="filter-select">
+          <option value="all">Все уровни</option>
+          <option value="INFO">INFO</option>
+          <option value="WARN">WARN</option>
+          <option value="ERROR">ERROR</option>
+        </select>
+      </div>
+      <div class="modal-body">
+        <div id="logs-console" class="logs-console"></div>
+      </div>
+      <div class="modal-footer logs-footer">
+        <span id="logs-status-count" class="logs-count-text">Записей: 0</span>
+        <button id="logs-copy-btn" class="btn-secondary">Скопировать все логи</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Application Settings -->
+  <div id="settings-modal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Настройки приложения</h3>
+        <button class="btn-action modal-close" data-close-modal="settings-modal" aria-label="Закрыть">✕</button>
+      </div>
+      <div class="modal-body settings-body">
+        <div class="settings-group">
+          <label class="settings-label-row">
+            <span class="settings-title">Автозапуск при старте Windows</span>
+            <input type="checkbox" id="setting-autolaunch">
+          </label>
+          <p class="settings-desc">Автоматически запускать Tunnel Manager при входе в систему.</p>
+        </div>
+        <div class="settings-group">
+          <label class="settings-label-row">
+            <span class="settings-title">Запускать в свернутом виде</span>
+            <input type="checkbox" id="setting-startminimized">
+          </label>
+          <p class="settings-desc">При старте системы не открывать окно, а скрывать его в трей.</p>
+        </div>
+        <div class="settings-group">
+          <label class="settings-label-row">
+            <span class="settings-title">Сворачивать в трей при закрытии</span>
+            <input type="checkbox" id="setting-closetotray">
+          </label>
+          <p class="settings-desc">Кнопка «Закрыть» скрывает окно в трей вместо завершения программы.</p>
+        </div>
+        <div class="settings-group">
+          <label class="settings-label-row">
+            <span class="settings-title">Системные уведомления</span>
+            <input type="checkbox" id="setting-notifications">
+          </label>
+          <p class="settings-desc">Показывать всплывающие уведомления при успешном запуске туннеля.</p>
+        </div>
+        <div class="settings-group">
+          <label for="setting-defaultprovider" class="settings-title">Провайдер по умолчанию</label>
+          <select id="setting-defaultprovider" class="form-select">
+            <option value="lt">LocalTunnel</option>
+            <option value="cf">Cloudflare</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" data-close-modal="settings-modal">Отмена</button>
+        <button id="settings-save-btn" class="btn-success">Сохранить настройки</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Import / Export Backup -->
+  <div id="backup-modal" class="modal-backdrop hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Резервное копирование</h3>
+        <button class="btn-action modal-close" data-close-modal="backup-modal" aria-label="Закрыть">✕</button>
+      </div>
+      <div class="modal-body backup-body">
+        <div class="backup-option-card" id="export-action-card">
+          <div class="backup-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          </div>
+          <div class="backup-info">
+            <h4>Экспорт конфигураций</h4>
+            <p>Сохранить список всех созданных туннелей в JSON-файл для бэкапа или переноса.</p>
+          </div>
+          <button id="export-btn" class="btn-primary">Экспорт</button>
+        </div>
+        <div class="backup-option-card" id="import-action-card">
+          <div class="backup-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+          </div>
+          <div class="backup-info">
+            <h4>Импорт конфигураций</h4>
+            <p>Загрузить конфигурации туннелей из ранее экспортированного JSON-файла.</p>
+          </div>
+          <button id="import-btn" class="btn-secondary">Импорт</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom Confirm Modal -->
+  <div id="confirm-modal" class="modal-backdrop hidden">
+    <div class="modal-card modal-card-sm">
+      <div class="modal-header">
+        <h3 id="confirm-modal-title">Подтверждение</h3>
+      </div>
+      <div class="modal-body">
+        <p id="confirm-modal-message" class="confirm-message">Вы уверены?</p>
+      </div>
+      <div class="modal-footer">
+        <button id="confirm-cancel-btn" class="btn-secondary">Отмена</button>
+        <button id="confirm-ok-btn" class="btn-danger">Удалить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
 
   <script src="renderer.js"></script>
 </body>

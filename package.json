@@ -1,7 +1,7 @@
 {
   "name": "tunnel-manager",
   "description": "Graphical interface for exposing localhost to the world",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -15,9 +15,9 @@
     "build": "electron-builder"
   },
   "dependencies": {
-    "cloudflared": "^0.5.1",
     "debug": "^4.3.2",
-    "electron-store": "^11.0.2"
+    "electron-store": "^11.0.2",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "electron": "^43.2.0",
