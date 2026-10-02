@@ -49,6 +49,7 @@
       "!test/**",
       "!scripts/**",
       "!.githooks/**",
+      "!.github/**",
       "!eslint.config.js"
     ]
   }
