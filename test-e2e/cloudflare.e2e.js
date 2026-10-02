@@ -4,9 +4,9 @@ import http from 'node:http';
 import { launchApp, makeUserDataDir } from './helpers/app.js';
 import { createTunnel, toggleTunnel, waitForCard, installFakeCloudflared } from './helpers/ui.js';
 import { listen, close } from '../test/helpers/fakeLocaltunnel.js';
+import { fakeCloudflaredSkip } from '../test/helpers/fakeCloudflared.js';
 
-// Фейковый cloudflared — shell-скрипт, на Windows его нельзя запустить как .exe
-const skip = process.platform === 'win32' ? 'фейковый cloudflared — shell-скрипт' : false;
+const skip = fakeCloudflaredSkip;
 
 test('Cloudflare: туннель запускается и показывает адрес trycloudflare', { skip }, async (t) => {
   const local = http.createServer((req, res) => res.end('ok'));

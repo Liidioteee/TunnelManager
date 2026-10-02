@@ -1,9 +1,6 @@
 // Действия пользователя в окне приложения. Функции, передаваемые в
 // page.evaluate, выполняются внутри страницы, поэтому получают данные
 // только через аргументы.
-import crypto from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -88,11 +85,4 @@ export async function waitForCard(page, id, predicate, { timeout = 15000, messag
   throw new Error(`Карточка не пришла в ожидаемое состояние за ${timeout} мс${message ? ` (${message})` : ''}: ${JSON.stringify(info)}`);
 }
 
-// Подкладывает в папку данных приложения фейковый cloudflared (shell-скрипт)
-// вместе с файлом контрольной суммы — приложение запустит его как настоящий
-export function installFakeCloudflared(userDataDir, script) {
-  const binPath = path.join(userDataDir, 'cloudflared');
-  fs.writeFileSync(binPath, `#!/bin/sh\n${script}\n`, { mode: 0o755 });
-  const hash = crypto.createHash('sha256').update(fs.readFileSync(binPath)).digest('hex');
-  fs.writeFileSync(`${binPath}.sha256`, `${hash}\n`);
-}
+export { installFakeCloudflared } from '../../test/helpers/fakeCloudflared.js';

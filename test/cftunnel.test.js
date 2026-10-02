@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import CFTunnel from '../lib/CFTunnel.js';
+import { makeTmpDir } from './helpers/tmp.js';
+import { installFakeCloudflared, fakeCloudflaredSkip } from './helpers/fakeCloudflared.js';
 
 test('без binDir конструктор сообщает об ошибке', () => {
   assert.throws(() => new CFTunnel({ port: 3000 }), /binDir/);
@@ -73,4 +76,19 @@ test('аргументы запуска: IPv6-адрес берётся в кв�
   assert.equal(tunnel._buildArgs()[2], 'http://[::1]:3000');
   const full = new CFTunnel({ port: 80, binDir: '/tmp', localHost: 'fe80::1:2' });
   assert.equal(full._buildArgs()[2], 'http://[fe80::1:2]:80');
+});
+
+test('проверка бинарника кэшируется отдельно для каждого пути', { skip: fakeCloudflaredSkip }, async (t) => {
+  const good = makeTmpDir(t);
+  installFakeCloudflared(good, 'exit 0');
+  const broken = makeTmpDir(t);
+  installFakeCloudflared(broken, 'exit 0');
+  fs.writeFileSync(path.join(broken, 'cloudflared.sha256'), '0'.repeat(64)); // подменённый бинарник
+
+  await new CFTunnel({ port: 1, binDir: good })._ensureBinary();
+
+  const other = new CFTunnel({ port: 1, binDir: broken });
+  const install = t.mock.method(other, '_installVerifiedBinary', async () => {});
+  await other._ensureBinary();
+  assert.equal(install.mock.callCount(), 1, 'бинарник в другом каталоге проверяется и переустанавливается');
 });
