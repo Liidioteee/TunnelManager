@@ -131,3 +131,22 @@ for (const status of [429, 503]) {
     assert.equal((await retry).type, 'warning');
   });
 }
+
+test('если переподключение окончательно не удалось, туннель закрывается', async (t) => {
+  const closedPort = await getClosedPort();
+  const api = await startFakeApi(t, [
+    { id: 'first', ip: '127.0.0.1', port: closedPort, max_conn_count: 1, url: 'https://first.loca.lt' },
+    { status: 403, json: { message: 'Forbidden' } }
+  ]);
+  const tunnel = new Tunnel({ host: api.host, port: 9, local_host: '127.0.0.1' });
+  t.after(() => tunnel.close());
+  tunnel.on('error', () => {});
+
+  await new Promise((resolve, reject) => tunnel.open(err => (err ? reject(err) : resolve())));
+  // events.once здесь не подходит: он отклоняется на событии 'error'
+  await Promise.race([
+    new Promise(resolve => tunnel.once('close', resolve)),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('туннель не закрылся')), 5000))
+  ]);
+  assert.equal(tunnel.closed, true);
+});
