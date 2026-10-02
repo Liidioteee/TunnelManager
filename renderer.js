@@ -260,6 +260,31 @@ portInput.addEventListener('blur', () => {
   }
 });
 
+// --- TLS CHECKBOX FOLLOWS THE HOST ---
+// Та же проверка, что isLoopbackHost в lib/configValidation.js (renderer —
+// обычный скрипт страницы и не может импортировать модуль)
+function isLoopbackHost(host) {
+  const h = String(host || '').toLowerCase();
+  if (h === 'localhost' || h === '::1') return true;
+  const octets = h.split('.');
+  return octets.length === 4 && octets[0] === '127'
+    && octets.every(o => /^\d{1,3}$/.test(o) && Number(o) <= 255);
+}
+
+// Пока пользователь сам не нажал галочку, проверка сертификата пропускается
+// только для локальных адресов; для адресов в сети она включена
+let tlsCheckboxTouched = false;
+
+skipTlsVerifyCheckbox.addEventListener('change', () => {
+  tlsCheckboxTouched = true;
+});
+
+hostInput.addEventListener('input', () => {
+  if (!tlsCheckboxTouched) {
+    skipTlsVerifyCheckbox.checked = isLoopbackHost(hostInput.value.trim() || 'localhost');
+  }
+});
+
 // --- SUBDOMAIN INPUT SANITIZATION ---
 subdomainInput.addEventListener('input', () => {
   subdomainInput.value = subdomainInput.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
@@ -277,6 +302,7 @@ addBtn.addEventListener('click', async () => {
   hostInput.value = 'localhost';
   protocolSelect.value = 'http';
   skipTlsVerifyCheckbox.checked = true;
+  tlsCheckboxTouched = false;
 
   const settings = await window.api.getSettings();
   providerSelect.value = (settings && settings.defaultProvider) || 'lt';
@@ -621,6 +647,7 @@ function openEditForm(id) {
   hostInput.value = config.localHost || 'localhost';
   protocolSelect.value = config.localProtocol || 'http';
   skipTlsVerifyCheckbox.checked = config.skipTlsVerify !== false;
+  tlsCheckboxTouched = false;
 
   const provider = config.provider || 'lt';
   providerSelect.value = provider;

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sanitizeConfigInput, parseLocaltunnelServer } from '../lib/configValidation.js';
+import { sanitizeConfigInput, parseLocaltunnelServer, isLoopbackHost } from '../lib/configValidation.js';
 
 const base = { name: 'API', port: '3000' };
 
@@ -88,9 +88,25 @@ test('лишние поля из импорта не попадают в рез�
   ]);
 });
 
-test('skipTlsVerify отключается только явным false', () => {
-  assert.equal(sanitizeConfigInput({ ...base, skipTlsVerify: 'false' }).skipTlsVerify, true);
+test('skipTlsVerify: явный выбор пользователя сохраняется', () => {
   assert.equal(sanitizeConfigInput({ ...base, skipTlsVerify: false }).skipTlsVerify, false);
+  assert.equal(sanitizeConfigInput({ ...base, localHost: '192.168.1.5', skipTlsVerify: true }).skipTlsVerify, true);
+});
+
+test('skipTlsVerify по умолчанию включён только для локальных адресов', () => {
+  for (const localHost of ['localhost', '127.0.0.1', '127.1.2.3', '::1']) {
+    assert.equal(sanitizeConfigInput({ ...base, localHost }).skipTlsVerify, true, localHost);
+  }
+  for (const localHost of ['192.168.1.5', 'docker.local', '10.0.0.1', '127.0.0.1.nip.io']) {
+    assert.equal(sanitizeConfigInput({ ...base, localHost }).skipTlsVerify, false, localHost);
+  }
+  // не булево значение (например, строка из чужого файла) — как отсутствие
+  assert.equal(sanitizeConfigInput({ ...base, localHost: '10.0.0.1', skipTlsVerify: 'true' }).skipTlsVerify, false);
+});
+
+test('isLoopbackHost распознаёт адреса обратной петли', () => {
+  for (const host of ['localhost', '127.0.0.1', '127.255.0.9', '::1']) assert.equal(isLoopbackHost(host), true, host);
+  for (const host of ['localhost.evil.com', '128.0.0.1', '1.127.0.0.1', '::2', '0.0.0.0', '']) assert.equal(isLoopbackHost(host), false, host);
 });
 
 test('parseLocaltunnelServer принимает http(s)-адрес сервера и возвращает origin', () => {

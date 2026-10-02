@@ -127,6 +127,41 @@ test('отказ сервера localtunnel показывается на кар
   assert.equal(api.requests.length, 1, 'без повторных запросов');
 });
 
+test('проверка TLS-сертификата: по умолчанию пропускается только для локального хоста', async (t) => {
+  const app = await launchApp(t);
+  const page = app.page;
+  await page.evaluate(() => document.getElementById('add-btn').click());
+  await page.waitFor(() => !document.getElementById('add-form').classList.contains('hidden'));
+
+  const setHost = (host) => page.evaluate((host) => {
+    const input = document.getElementById('host-input');
+    input.value = host;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return document.getElementById('skip-tls-verify-checkbox').checked;
+  }, host);
+
+  assert.equal(await page.evaluate(() => document.getElementById('skip-tls-verify-checkbox').checked), true);
+  assert.equal(await setHost('192.168.1.5'), false, 'адрес в сети — проверка включена');
+  assert.equal(await setHost('127.0.0.1'), true, 'локальный адрес — проверка пропускается');
+
+  // ручной выбор пользователя больше не меняется при смене хоста
+  await page.evaluate(() => document.getElementById('skip-tls-verify-checkbox').click());
+  assert.equal(await setHost('localhost'), false);
+
+  // сохранённая конфигурация с адресом в сети — с проверкой сертификата
+  await page.evaluate(() => document.getElementById('skip-tls-verify-checkbox').click());
+  assert.equal(await setHost('192.168.1.5'), true, 'после ручного выбора галочка не меняется');
+  await page.evaluate(() => document.getElementById('skip-tls-verify-checkbox').click());
+  await page.evaluate(() => {
+    document.getElementById('port-input').value = '8443';
+    document.getElementById('port-input').dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('save-btn').click();
+  });
+  const saved = await page.waitFor(async () => (await window.api.getConfigs())[0]);
+  assert.equal(saved.localHost, '192.168.1.5');
+  assert.equal(saved.skipTlsVerify, false);
+});
+
 async function waitUntil(predicate, timeout = 10000) {
   const deadline = Date.now() + timeout;
   while (!predicate()) {
