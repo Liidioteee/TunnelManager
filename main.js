@@ -5,12 +5,12 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import Store from 'electron-store';
 import QRCode from 'qrcode';
 import dns from 'dns';
-import net from 'net';
 import Tunnel from './lib/Tunnel.js';
 import CFTunnel from './lib/CFTunnel.js';
 import logger from './lib/Logger.js';
 import TunnelManager from './lib/TunnelManager.js';
 import { parseLocaltunnelServer } from './lib/configValidation.js';
+import { checkLocalPort } from './lib/localPort.js';
 
 dns.setDefaultResultOrder('ipv4first');
 
@@ -92,26 +92,6 @@ if (!gotTheLock) {
     if (mainWindow && !mainWindow.webContents.isDestroyed()) {
       mainWindow.webContents.send(channel, data);
     }
-  }
-
-  function checkLocalPort(port, host = '127.0.0.1') {
-    return new Promise((resolve) => {
-      const socket = new net.Socket();
-      socket.setTimeout(600);
-      socket.once('connect', () => {
-        socket.destroy();
-        resolve(true);
-      });
-      socket.once('error', () => {
-        socket.destroy();
-        resolve(false);
-      });
-      socket.once('timeout', () => {
-        socket.destroy();
-        resolve(false);
-      });
-      socket.connect(port, host === 'localhost' ? '127.0.0.1' : host);
-    });
   }
 
   // Необязательный собственный сервер localtunnel вместо https://loca.lt
