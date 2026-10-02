@@ -240,6 +240,56 @@ test('фильтр по статусу обновляется сам, когда
   assert.match(info.statusText, /недоступен/);
 });
 
+test('обновление списка не пересоздаёт карточки и не сбрасывает фокус', async (t) => {
+  const api = await startBrokenLocaltunnel(t);
+  const app = await launchApp(t, { env: { TUNNEL_MANAGER_LT_SERVER: api.host } });
+  const first = await createTunnel(app.page, { name: 'First', port: 3001 });
+  const second = await createTunnel(app.page, { name: 'Second', port: 3002 });
+
+  // помечаем DOM-элементы карточек и ставим фокус на кнопку второй карточки
+  await app.page.evaluate((first, second) => {
+    document.querySelector(`.tunnel-card[data-id="${first}"]`).__marker = 'first';
+    const card = document.querySelector(`.tunnel-card[data-id="${second}"]`);
+    card.__marker = 'second';
+    card.querySelector('[data-action="edit"]').focus();
+  }, first, second);
+
+  await toggleTunnel(app.page, first); // приходит новый список конфигураций
+  await waitForCard(app.page, first, c => c.switchOn && /Повтор/.test(c.statusText));
+
+  const state = await app.page.evaluate((first, second) => ({
+    firstSame: document.querySelector(`.tunnel-card[data-id="${first}"]`).__marker === 'first',
+    secondSame: document.querySelector(`.tunnel-card[data-id="${second}"]`).__marker === 'second',
+    focused: document.activeElement && document.activeElement.closest('.tunnel-card')?.dataset.id === second
+  }), first, second);
+  assert.deepEqual(state, { firstSame: true, secondSame: true, focused: true });
+});
+
+test('карточка после обновления остаётся рабочей: выделение, сортировка, удаление', async (t) => {
+  const app = await launchApp(t);
+  const a = await createTunnel(app.page, { name: 'Bravo', port: 3001 });
+  const b = await createTunnel(app.page, { name: 'Alpha', port: 3002 });
+
+  // сортировка по имени переставляет существующие карточки
+  await app.page.evaluate(() => {
+    const sort = document.getElementById('sort-select');
+    sort.value = 'name_asc';
+    sort.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  const order = await app.page.evaluate(() => [...document.querySelectorAll('.tunnel-card .tunnel-name-text')].map(e => e.textContent));
+  assert.deepEqual(order, ['Alpha', 'Bravo']);
+
+  // клик по карточке выделяет её, редактирование меняет имя на месте
+  await app.page.evaluate((id) => document.querySelector(`.tunnel-card[data-id="${id}"] .card-meta`).click(), a);
+  assert.equal(await app.page.evaluate((id) => document.querySelector(`.tunnel-card[data-id="${id}"]`).classList.contains('selected'), a), true);
+  await editTunnel(app.page, b, { name: 'Charlie' });
+  await waitForCard(app.page, b, c => c.name === 'Charlie');
+
+  await deleteTunnel(app.page, a);
+  await app.page.waitFor((id) => !document.querySelector(`.tunnel-card[data-id="${id}"]`), [a]);
+  assert.equal(await app.page.evaluate(() => document.querySelectorAll('.tunnel-card').length), 1);
+});
+
 async function waitUntil(predicate, timeout = 10000) {
   const deadline = Date.now() + timeout;
   while (!predicate()) {

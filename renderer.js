@@ -474,171 +474,237 @@ function updateStatsStrip() {
 }
 
 // --- RENDER TUNNELS ---
+// Карточка создаётся один раз и живёт, пока существует туннель. Разметка
+// пересоздаётся только при изменении постоянных данных (имя, порт, хост,
+// адрес); статус, переключатель, время работы, счётчик и выделение
+// обновляются на месте. Так обновление списка не сбрасывает фокус и
+// наведение и не теряет клики.
+const cardEntries = new Map(); // id → { el, structure }
+let emptyStateEl = null;
+
+function cardStructureHtml(config) {
+  let urlBlockHtml = '';
+  if (config.active && config.url) {
+    const escapedUrl = escapeHtml(config.url);
+    urlBlockHtml = `
+      <div class="tunnel-url-container">
+        <a href="${escapedUrl}" class="tunnel-url-link" title="${escapedUrl}" target="_blank">${escapedUrl}</a>
+        <button class="url-action-btn" data-action="open-url" data-url="${escapedUrl}" title="Открыть в браузере">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+          Открыть
+        </button>
+        <button class="url-action-btn" data-action="copy-url" data-url="${escapedUrl}" title="Скопировать ссылку">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          Копировать
+        </button>
+        <button class="url-action-btn" data-action="qr-url" data-url="${escapedUrl}" data-name="${escapeHtml(config.name)}" title="Показать QR-код">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+          QR-код
+        </button>
+      </div>
+    `;
+  }
+
+  const configProvider = config.provider || 'lt';
+  const providerBadgeHtml = `<span class="provider-badge ${configProvider}">${configProvider.toUpperCase()}</span>`;
+
+  const metaSubdomain = (configProvider === 'lt' && config.subdomain)
+    ? `<span class="meta-separator">•</span><span>Домен: <strong>${escapeHtml(config.subdomain)}</strong></span>`
+    : '';
+
+  const customHostMeta = (config.localHost && config.localHost !== 'localhost' && config.localHost !== '127.0.0.1')
+    ? `<span class="meta-separator">•</span><span>Хост: <strong>${escapeHtml(config.localHost)}</strong></span>`
+    : '';
+
+  const httpsMeta = (config.localProtocol === 'https')
+    ? `<span class="meta-separator">•</span><span><strong>HTTPS</strong></span>`
+    : '';
+
+  return `
+    <div class="card-left-section">
+      <div class="tunnel-info">
+        <h3 class="card-title">
+          <span id="status-dot-${config.id}" class="status-dot"></span>
+          <span class="tunnel-name-text" title="${escapeHtml(config.name)}">${escapeHtml(config.name)}</span>
+          ${providerBadgeHtml}
+          <span id="uptime-${config.id}" class="uptime-badge hidden"></span>
+          <span id="stats-${config.id}" class="stats-badge hidden"></span>
+        </h3>
+        <div class="card-meta">
+          <span>Порт: <strong>${parseInt(config.port, 10)}</strong></span>
+          ${customHostMeta}
+          ${httpsMeta}
+          ${metaSubdomain}
+          <span class="meta-separator">•</span>
+          <span id="status-text-${config.id}" class="status-message"></span>
+        </div>
+        ${urlBlockHtml}
+      </div>
+    </div>
+    <div class="right-actions">
+      <button class="btn-action" data-action="edit" title="Редактировать конфигурацию" aria-label="Редактировать">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+      </button>
+      <label class="switch" title="Включить/Выключить туннель">
+        <input type="checkbox" id="switch-${config.id}" aria-label="Включить/выключить туннель ${escapeHtml(config.name)}">
+        <span class="slider"></span>
+      </label>
+      <button class="btn-action btn-delete" data-action="delete" title="Удалить туннель" aria-label="Удалить">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+      </button>
+    </div>
+  `;
+}
+
+// Быстро меняющееся состояние карточки — без пересоздания разметки
+function applyCardState(card, config) {
+  const id = config.id;
+  const status = latestStatuses[id] || config.status || { type: 'info', message: 'Не активен' };
+
+  card.className = card.className.replace(/\bstatus-\S+/g, '').trim();
+  card.classList.add(`status-${status.type}`);
+  card.classList.toggle('selected', selectedIds.has(id));
+
+  const dot = card.querySelector('.status-dot');
+  if (dot) dot.className = `status-dot ${status.type}`;
+  const text = card.querySelector('.status-message');
+  if (text && text.textContent !== status.message) text.textContent = status.message;
+
+  const toggle = card.querySelector('input[type="checkbox"]');
+  if (toggle) toggle.checked = !!config.active;
+
+  const uptimeEl = card.querySelector('.uptime-badge');
+  const uptimeVal = latestUptimes[id];
+  if (uptimeEl) {
+    uptimeEl.textContent = uptimeVal ? formatUptime(uptimeVal) : '';
+    uptimeEl.classList.toggle('hidden', !uptimeVal);
+  }
+
+  const statsEl = card.querySelector('.stats-badge');
+  const statsVal = latestRequestStats[id] || (config.stats && config.stats.count > 0 ? config.stats : null);
+  if (statsEl) {
+    const hasStats = !!(statsVal && statsVal.count > 0);
+    statsEl.textContent = hasStats ? `${statsVal.count} req` : '';
+    statsEl.title = hasStats ? requestStatsTitle(statsVal) : '';
+    statsEl.classList.toggle('hidden', !hasStats);
+  }
+}
+
+// Обработчики вешаются один раз на карточку и находят туннель по id в
+// момент события — поэтому работают и после обновления разметки
+function createCardElement(id) {
+  const card = document.createElement('div');
+  card.className = 'tunnel-card';
+  card.setAttribute('data-id', id);
+
+  card.addEventListener('change', (e) => {
+    if (e.target.matches('input[type="checkbox"]')) {
+      toggleTunnel(id, e.target.checked);
+    }
+  });
+
+  card.addEventListener('click', (e) => {
+    const config = currentConfigs.find(c => c.id === id);
+    if (!config) return;
+
+    const btn = e.target.closest('button, a, input, label');
+    if (btn) {
+      const action = btn.getAttribute('data-action');
+      if (action === 'open-url') {
+        window.api.openExternal(btn.getAttribute('data-url'));
+      } else if (action === 'copy-url') {
+        copyLink(btn.getAttribute('data-url'));
+      } else if (action === 'qr-url') {
+        openQrModal(btn.getAttribute('data-url'), btn.getAttribute('data-name'));
+      } else if (action === 'edit') {
+        openEditForm(id);
+      } else if (action === 'delete') {
+        deleteTunnel(id, config.name);
+      }
+      return;
+    }
+
+    // Card Selection for Batch actions
+    if (selectedIds.has(id)) {
+      selectedIds.delete(id);
+    } else {
+      selectedIds.add(id);
+    }
+    card.classList.toggle('selected', selectedIds.has(id));
+    updateBatchUI();
+  });
+
+  return card;
+}
+
+function showEmptyState(noConfigsYet) {
+  if (!emptyStateEl) {
+    emptyStateEl = document.createElement('div');
+    emptyStateEl.className = 'empty-state';
+    emptyStateEl.innerHTML = `
+      <div class="empty-icon-wrap">
+        <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+      </div>
+      <p></p>
+    `;
+  }
+  emptyStateEl.querySelector('p').textContent = noConfigsYet
+    ? 'Пока нет ни одного туннеля. Нажмите «+» вверху, чтобы создать первый.'
+    : 'Нет туннелей, соответствующих выбранным параметрам фильтрации.';
+  if (emptyStateEl.parentNode !== tunnelsList) tunnelsList.appendChild(emptyStateEl);
+}
+
 function renderTunnels(configs) {
-  if (configs) currentConfigs = configs;
+  if (configs) {
+    currentConfigs = configs;
+    const ids = new Set(configs.map(c => c.id));
+    for (const config of configs) {
+      // свежий статус из списка важнее ранее полученного события
+      if (config.status) latestStatuses[config.id] = config.status;
+    }
+    // удалённые туннели: убираем карточки и их данные
+    for (const [id, entry] of cardEntries) {
+      if (!ids.has(id)) {
+        entry.el.remove();
+        cardEntries.delete(id);
+        delete latestStatuses[id];
+        delete latestUptimes[id];
+        delete latestRequestStats[id];
+        selectedIds.delete(id);
+      }
+    }
+  }
   updateStatsStrip();
 
   const filtered = getFilteredAndSortedConfigs();
-  tunnelsList.innerHTML = '';
+  const visible = new Set(filtered.map(c => c.id));
+  for (const [id, entry] of cardEntries) {
+    if (!visible.has(id)) entry.el.remove();
+  }
 
   if (filtered.length === 0) {
-    const noConfigsYet = currentConfigs.length === 0;
-    tunnelsList.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon-wrap">
-          <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
-        </div>
-        <p>${noConfigsYet
-          ? 'Пока нет ни одного туннеля. Нажмите «+» вверху, чтобы создать первый.'
-          : 'Нет туннелей, соответствующих выбранным параметрам фильтрации.'}</p>
-      </div>
-    `;
+    showEmptyState(currentConfigs.length === 0);
     updateBatchUI();
     return;
   }
+  if (emptyStateEl) emptyStateEl.remove();
 
-  filtered.forEach(config => {
-    const card = document.createElement('div');
-    card.className = 'tunnel-card';
-    card.setAttribute('data-id', config.id);
-
-    if (selectedIds.has(config.id)) {
-      card.classList.add('selected');
+  filtered.forEach((config, index) => {
+    let entry = cardEntries.get(config.id);
+    if (!entry) {
+      entry = { el: createCardElement(config.id), structure: '' };
+      cardEntries.set(config.id, entry);
     }
-
-    let urlBlockHtml = '';
-    if (config.active && config.url) {
-      const escapedUrl = escapeHtml(config.url);
-      urlBlockHtml = `
-        <div class="tunnel-url-container">
-          <a href="${escapedUrl}" class="tunnel-url-link" title="${escapedUrl}" target="_blank">${escapedUrl}</a>
-          <button class="url-action-btn" data-action="open-url" data-url="${escapedUrl}" title="Открыть в браузере">
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-            Открыть
-          </button>
-          <button class="url-action-btn" data-action="copy-url" data-url="${escapedUrl}" title="Скопировать ссылку">
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-            Копировать
-          </button>
-          <button class="url-action-btn" data-action="qr-url" data-url="${escapedUrl}" data-name="${escapeHtml(config.name)}" title="Показать QR-код">
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-            QR-код
-          </button>
-        </div>
-      `;
+    const structure = cardStructureHtml(config);
+    if (entry.structure !== structure) {
+      entry.el.innerHTML = structure;
+      entry.structure = structure;
     }
+    applyCardState(entry.el, config);
 
-    const configProvider = config.provider || 'lt';
-    const providerBadgeHtml = `<span class="provider-badge ${configProvider}">${configProvider.toUpperCase()}</span>`;
-
-    const metaSubdomain = (configProvider === 'lt' && config.subdomain)
-      ? `<span class="meta-separator">•</span><span>Домен: <strong>${escapeHtml(config.subdomain)}</strong></span>`
-      : '';
-
-    const customHostMeta = (config.localHost && config.localHost !== 'localhost' && config.localHost !== '127.0.0.1')
-      ? `<span class="meta-separator">•</span><span>Хост: <strong>${escapeHtml(config.localHost)}</strong></span>`
-      : '';
-
-    const httpsMeta = (config.localProtocol === 'https')
-      ? `<span class="meta-separator">•</span><span><strong>HTTPS</strong></span>`
-      : '';
-
-    const status = latestStatuses[config.id] || config.status || { type: 'info', message: 'Не активен' };
-    card.classList.add(`status-${status.type}`);
-
-    const uptimeVal = latestUptimes[config.id];
-    const uptimeBadgeHtml = uptimeVal
-      ? `<span id="uptime-${config.id}" class="uptime-badge">${formatUptime(uptimeVal)}</span>`
-      : `<span id="uptime-${config.id}" class="uptime-badge hidden"></span>`;
-
-    const statsVal = latestRequestStats[config.id] || (config.stats && config.stats.count > 0 ? config.stats : null);
-    const statsBadgeHtml = (statsVal && statsVal.count > 0)
-      ? `<span id="stats-${config.id}" class="stats-badge" title="${escapeHtml(requestStatsTitle(statsVal))}">${statsVal.count} req</span>`
-      : `<span id="stats-${config.id}" class="stats-badge hidden"></span>`;
-
-    card.innerHTML = `
-      <div class="card-left-section">
-        <div class="tunnel-info">
-          <h3 class="card-title">
-            <span id="status-dot-${config.id}" class="status-dot ${status.type}"></span>
-            <span class="tunnel-name-text" title="${escapeHtml(config.name)}">${escapeHtml(config.name)}</span>
-            ${providerBadgeHtml}
-            ${uptimeBadgeHtml}
-            ${statsBadgeHtml}
-          </h3>
-          <div class="card-meta">
-            <span>Порт: <strong>${parseInt(config.port, 10)}</strong></span>
-            ${customHostMeta}
-            ${httpsMeta}
-            ${metaSubdomain}
-            <span class="meta-separator">•</span>
-            <span id="status-text-${config.id}" class="status-message">${escapeHtml(status.message)}</span>
-          </div>
-          ${urlBlockHtml}
-        </div>
-      </div>
-      <div class="right-actions">
-        <button class="btn-action" data-action="edit" title="Редактировать конфигурацию" aria-label="Редактировать">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-        </button>
-        <label class="switch" title="Включить/Выключить туннель">
-          <input type="checkbox" id="switch-${config.id}" ${config.active ? 'checked' : ''} aria-label="Включить/выключить туннель ${escapeHtml(config.name)}">
-          <span class="slider"></span>
-        </label>
-        <button class="btn-action btn-delete" data-action="delete" title="Удалить туннель" aria-label="Удалить">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-        </button>
-      </div>
-    `;
-
-    // Event Delegations for this card
-    const switchEl = card.querySelector(`#switch-${config.id}`);
-    switchEl.addEventListener('change', (e) => {
-      toggleTunnel(config.id, e.target.checked);
-    });
-
-    card.addEventListener('click', async (e) => {
-      const btn = e.target.closest('button, a, input, label');
-      if (btn) {
-        const action = btn.getAttribute('data-action');
-        if (action === 'open-url') {
-          const url = btn.getAttribute('data-url');
-          window.api.openExternal(url);
-          return;
-        }
-        if (action === 'copy-url') {
-          const url = btn.getAttribute('data-url');
-          copyLink(url);
-          return;
-        }
-        if (action === 'qr-url') {
-          const url = btn.getAttribute('data-url');
-          const name = btn.getAttribute('data-name');
-          openQrModal(url, name);
-          return;
-        }
-        if (action === 'edit') {
-          openEditForm(config.id);
-          return;
-        }
-        if (action === 'delete') {
-          deleteTunnel(config.id, config.name);
-          return;
-        }
-        return;
-      }
-
-      // Card Selection for Batch actions
-      const isSelected = card.classList.toggle('selected');
-      if (isSelected) {
-        selectedIds.add(config.id);
-      } else {
-        selectedIds.delete(config.id);
-      }
-      updateBatchUI();
-    });
-
-    tunnelsList.appendChild(card);
+    // переставляем только если карточка не на своём месте
+    const current = tunnelsList.children[index];
+    if (current !== entry.el) tunnelsList.insertBefore(entry.el, current || null);
   });
 
   updateBatchUI();
@@ -966,24 +1032,11 @@ importBtn.addEventListener('click', async () => {
 window.api.onTunnelStatus((data) => {
   latestStatuses[data.id] = data.status;
 
-  const dot = document.getElementById(`status-dot-${data.id}`);
-  const text = document.getElementById(`status-text-${data.id}`);
-  const card = tunnelsList.querySelector(`.tunnel-card[data-id="${data.id}"]`);
-
-  if (dot) {
-    dot.className = `status-dot ${data.status.type}`;
-  }
-  if (text) {
-    text.innerText = data.status.message;
-  }
-  if (card) {
-    card.className = card.className.replace(/\bstatus-\S+/g, '').trim();
-    card.classList.add(`status-${data.status.type}`);
-  }
-
   const config = currentConfigs.find(c => c.id === data.id);
   if (config) {
     config.status = data.status;
+    const entry = cardEntries.get(data.id);
+    if (entry) applyCardState(entry.el, config);
   }
   updateStatsStrip();
 
