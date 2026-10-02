@@ -14,7 +14,8 @@
     "start": "electron .",
     "lint": "eslint .",
     "test": "node --test \"test/**/*.test.js\"",
-    "build": "electron-builder"
+    "build": "electron-builder",
+    "prepare": "node scripts/install-git-hooks.js"
   },
   "dependencies": {
     "debug": "^4.3.2",
@@ -46,6 +47,8 @@
     "files": [
       "**/*",
       "!test/**",
+      "!scripts/**",
+      "!.githooks/**",
       "!eslint.config.js"
     ]
   }
