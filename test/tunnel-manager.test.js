@@ -220,3 +220,21 @@ test('число запросов от Cloudflare накапливается и 
   assert.equal(stats.lastPath, '');
   assert.equal(events['request-stats'].length, 2);
 });
+
+test('importConfigs пропускает null и другие не-объекты, не прерывая импорт', () => {
+  const { manager, store } = makeManager();
+  const res = manager.importConfigs({ configs: [null, 5, 'x', { port: 8080 }] });
+  assert.equal(res.success, true);
+  assert.equal(res.count, 1);
+  assert.equal(res.skipped, 3);
+  assert.equal(store.get('configs')[0].port, '8080');
+});
+
+test('importConfigs: файл с null или не тем типом в корне — понятная ошибка', () => {
+  const { manager } = makeManager();
+  for (const parsed of [null, 42, 'text', { configs: 'nope' }]) {
+    const res = manager.importConfigs(parsed);
+    assert.equal(res.success, false, JSON.stringify(parsed));
+    assert.match(res.error, /не содержит корректных конфигураций/);
+  }
+});

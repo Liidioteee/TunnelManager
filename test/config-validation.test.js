@@ -120,3 +120,9 @@ test('parseLocaltunnelServer отклоняет пустые и некоррек
     assert.equal(parseLocaltunnelServer(value), null, String(value));
   }
 });
+
+test('не объект на входе — null, а не исключение', () => {
+  for (const value of [null, undefined, 42, 'str', true, []]) {
+    assert.equal(sanitizeConfigInput(value), null, JSON.stringify(value));
+  }
+});
