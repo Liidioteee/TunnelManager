@@ -139,6 +139,12 @@ function showToast(message, type = 'info') {
 
 // --- CUSTOM CONFIRM DIALOG ---
 function customConfirm(message, title = 'Подтверждение', btnText = 'Удалить') {
+  // предыдущий вопрос, оставшийся без ответа, считается отменённым —
+  // иначе его промис никогда не завершится
+  if (confirmResolver) {
+    confirmResolver(false);
+    confirmResolver = null;
+  }
   return new Promise((resolve) => {
     confirmModalTitle.innerText = title;
     confirmModalMessage.innerText = message;
@@ -190,7 +196,12 @@ allModals.forEach((modal) => {
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
+    const anyModalOpen = allModals.some((modal) => !modal.classList.contains('hidden'));
     allModals.forEach((modal) => closeModal(modal));
+    // форма закрывается, только если Esc не закрыл поверх неё модальное окно
+    if (!anyModalOpen && !addForm.classList.contains('hidden')) {
+      addForm.classList.add('hidden');
+    }
   }
 });
 
@@ -583,9 +594,10 @@ function applyCardState(card, config) {
 
   const uptimeEl = card.querySelector('.uptime-badge');
   const uptimeVal = latestUptimes[id];
+  const hasUptime = typeof uptimeVal === 'number';
   if (uptimeEl) {
-    uptimeEl.textContent = uptimeVal ? formatUptime(uptimeVal) : '';
-    uptimeEl.classList.toggle('hidden', !uptimeVal);
+    uptimeEl.textContent = hasUptime ? formatUptime(uptimeVal) : '';
+    uptimeEl.classList.toggle('hidden', !hasUptime);
   }
 
   const statsEl = card.querySelector('.stats-badge');
@@ -757,18 +769,22 @@ function openEditForm(id) {
 
 // --- COPY TO CLIPBOARD ---
 function copyLink(url) {
+  copyText(url, 'Ссылка скопирована в буфер обмена');
+}
+
+function copyText(text, successMessage) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(url).then(() => {
-      showToast('Ссылка скопирована в буфер обмена', 'success');
+    navigator.clipboard.writeText(text).then(() => {
+      showToast(successMessage, 'success');
     }).catch(() => {
-      fallbackCopy(url);
+      fallbackCopy(text, successMessage);
     });
   } else {
-    fallbackCopy(url);
+    fallbackCopy(text, successMessage);
   }
 }
 
-function fallbackCopy(text) {
+function fallbackCopy(text, successMessage) {
   const textArea = document.createElement('textarea');
   textArea.value = text;
   textArea.style.position = 'fixed';
@@ -777,9 +793,9 @@ function fallbackCopy(text) {
   textArea.select();
   try {
     document.execCommand('copy');
-    showToast('Ссылка скопирована в буфер обмена', 'success');
+    showToast(successMessage, 'success');
   } catch (err) {
-    showToast('Не удалось скопировать ссылку', 'error');
+    showToast('Не удалось скопировать в буфер обмена', 'error');
   }
   document.body.removeChild(textArea);
 }
@@ -992,7 +1008,7 @@ logsCopyBtn.addEventListener('click', () => {
     return;
   }
   const text = rawLogsCache.map(l => `[${l.timestamp}] [${l.level}] ${l.message}`).join('\n');
-  copyLink(text);
+  copyText(text, 'Журнал скопирован в буфер обмена');
 });
 
 // --- SETTINGS MODAL ---
@@ -1082,7 +1098,8 @@ window.api.onUptimesUpdated((uptimes) => {
     }
   }
   currentConfigs.forEach(config => {
-    if (!uptimes[config.id]) {
+    // 0 секунд — тоже время работы (туннель только что подключился)
+    if (!(config.id in uptimes)) {
       delete latestUptimes[config.id];
       const el = document.getElementById(`uptime-${config.id}`);
       if (el) {

@@ -309,6 +309,24 @@ test('ошибка действия показывается понятным т
   assert.equal(await cardInfo(app.page, id), null, 'карточка удалённого туннеля исчезла после обновления списка');
 });
 
+test('Esc закрывает форму добавления туннеля', async (t) => {
+  const app = await launchApp(t);
+  await app.page.evaluate(() => document.getElementById('add-btn').click());
+  await app.page.waitFor(() => !document.getElementById('add-form').classList.contains('hidden'));
+  await app.page.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  assert.equal(await app.page.evaluate(() => document.getElementById('add-form').classList.contains('hidden')), true);
+});
+
+test('копирование журнала сообщает о журнале, а не о ссылке', async (t) => {
+  const app = await launchApp(t);
+  await app.page.evaluate(() => document.getElementById('logs-btn').click());
+  await app.page.waitFor(() => !document.getElementById('logs-modal').classList.contains('hidden'));
+  await app.page.evaluate(() => document.getElementById('logs-copy-btn').click());
+  const toast = await app.page.waitFor(() => document.querySelector('.toast')?.textContent);
+  assert.match(toast, /Журнал скопирован|Не удалось скопировать/);
+  assert.doesNotMatch(toast, /Ссылка/);
+});
+
 async function waitUntil(predicate, timeout = 10000) {
   const deadline = Date.now() + timeout;
   while (!predicate()) {
