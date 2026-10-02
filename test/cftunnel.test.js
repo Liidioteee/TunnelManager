@@ -164,3 +164,89 @@ test('бинарник с неверной контрольной суммой �
   assert.ok(!fs.existsSync(tunnel.binPath));
   assert.ok(!fs.existsSync(`${tunnel.binPath}.download`));
 });
+
+// Установленный бинарник + подменённый GitHub с «последним релизом»
+function setupInstalled(t, { sidecar, release }) {
+  const dir = makeTmpDir(t);
+  const tunnel = new CFTunnel({ port: 1, binDir: dir });
+  fs.writeFileSync(tunnel.binPath, 'installed binary');
+  const sha = crypto.createHash('sha256').update('installed binary').digest('hex');
+  fs.writeFileSync(tunnel.sidecarPath, typeof sidecar === 'function' ? sidecar(sha) : sidecar);
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (input) => {
+    const href = String(input);
+    requests.push(href);
+    if (release instanceof Error) throw release;
+    if (href.startsWith('https://api.github.com/')) {
+      const digest = crypto.createHash('sha256').update(release.body).digest('hex');
+      return new Response(JSON.stringify({
+        tag_name: release.version,
+        assets: [{
+          name: PLATFORM_ASSET_NAME,
+          digest: `sha256:${digest}`,
+          browser_download_url: `https://github.com/cloudflare/cloudflared/releases/download/${release.version}/${PLATFORM_ASSET_NAME}`
+        }]
+      }), { status: 200 });
+    }
+    return new Response(release.body, { status: 200 });
+  });
+  return { tunnel, sha, requests };
+}
+
+const PLATFORM_ASSET_NAME = {
+  win32: { x64: 'cloudflared-windows-amd64.exe', ia32: 'cloudflared-windows-386.exe' },
+  linux: { x64: 'cloudflared-linux-amd64', arm64: 'cloudflared-linux-arm64', arm: 'cloudflared-linux-arm', ia32: 'cloudflared-linux-386' }
+}[process.platform]?.[process.arch];
+const updateSkip = PLATFORM_ASSET_NAME ? false : 'тест обновления рассчитан на Linux и Windows';
+const DAY = 24 * 60 * 60 * 1000;
+
+test('недавно проверенный бинарник используется без обращения к GitHub', { skip: updateSkip }, async (t) => {
+  const { tunnel, requests } = setupInstalled(t, {
+    sidecar: (sha) => JSON.stringify({ sha256: sha, assetSha256: sha, version: '2026.9.3', checkedAt: Date.now() - DAY }),
+    release: { version: '2026.9.9', body: 'new binary' }
+  });
+  await tunnel._ensureBinary();
+  assert.deepEqual(requests, []);
+  assert.equal(fs.readFileSync(tunnel.binPath, 'utf8'), 'installed binary');
+});
+
+test('раз в неделю бинарник обновляется до нового релиза', { skip: updateSkip }, async (t) => {
+  const { tunnel } = setupInstalled(t, {
+    sidecar: (sha) => JSON.stringify({ sha256: sha, assetSha256: sha, version: '2026.1.0', checkedAt: Date.now() - 8 * DAY }),
+    release: { version: '2026.9.9', body: 'new binary' }
+  });
+  await tunnel._ensureBinary();
+  assert.equal(fs.readFileSync(tunnel.binPath, 'utf8'), 'new binary');
+  const meta = JSON.parse(fs.readFileSync(tunnel.sidecarPath, 'utf8'));
+  assert.equal(meta.version, '2026.9.9');
+  assert.ok(Date.now() - meta.checkedAt < 60000);
+});
+
+test('если релиз не изменился, запоминается время проверки, файл не скачивается', { skip: updateSkip }, async (t) => {
+  const { tunnel, requests } = setupInstalled(t, {
+    sidecar: (sha) => JSON.stringify({ sha256: sha, assetSha256: sha, version: '2026.9.3', checkedAt: 0 }),
+    release: { version: '2026.9.3', body: 'installed binary' }
+  });
+  await tunnel._ensureBinary();
+  assert.equal(requests.length, 1, 'только запрос метаданных');
+  assert.ok(Date.now() - JSON.parse(fs.readFileSync(tunnel.sidecarPath, 'utf8')).checkedAt < 60000);
+});
+
+test('без сети при проверке обновлений используется установленный бинарник', { skip: updateSkip }, async (t) => {
+  const { tunnel } = setupInstalled(t, {
+    sidecar: (sha) => JSON.stringify({ sha256: sha, assetSha256: sha, version: '2026.1.0', checkedAt: 0 }),
+    release: new TypeError('fetch failed')
+  });
+  await tunnel._ensureBinary();
+  assert.equal(fs.readFileSync(tunnel.binPath, 'utf8'), 'installed binary');
+});
+
+test('старый формат файла контрольной суммы (только хэш) по-прежнему принимается', { skip: updateSkip }, async (t) => {
+  const { tunnel } = setupInstalled(t, {
+    sidecar: (sha) => `${sha}\n`,
+    release: { version: '2026.9.3', body: 'installed binary' }
+  });
+  await tunnel._ensureBinary();
+  assert.equal(fs.readFileSync(tunnel.binPath, 'utf8'), 'installed binary');
+  assert.equal(JSON.parse(fs.readFileSync(tunnel.sidecarPath, 'utf8')).version, '2026.9.3');
+});
