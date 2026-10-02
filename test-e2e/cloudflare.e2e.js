@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import http from 'node:http';
+import path from 'node:path';
 import { launchApp, makeUserDataDir } from './helpers/app.js';
 import { createTunnel, toggleTunnel, waitForCard, installFakeCloudflared } from './helpers/ui.js';
 import { listen, close } from '../test/helpers/fakeLocaltunnel.js';
@@ -78,3 +80,45 @@ test('Cloudflare: упавший процесс перезапускается, 
     { message: 'после перезапуска' });
   assert.equal(info.switchOn, true);
 });
+
+test('Cloudflare: если приложение аварийно завершилось, cloudflared не остаётся работать', { skip }, async (t) => {
+  const local = http.createServer((req, res) => res.end('ok'));
+  const port = await listen(local);
+  t.after(() => close(local));
+
+  const userDataDir = makeUserDataDir(t);
+  const pidFile = path.join(userDataDir, 'fake-cloudflared.pid');
+  installFakeCloudflared(userDataDir, [
+    `echo $$ > "${pidFile}"`,
+    'echo "INF |  https://orphan-test.trycloudflare.com  |" >&2',
+    'echo "INF Registered tunnel connection connIndex=0" >&2',
+    'exec sleep 600'
+  ].join('\n'));
+
+  const app = await launchApp(t, { userDataDir });
+  const id = await createTunnel(app.page, { name: 'CF orphan', port, provider: 'cf' });
+  await toggleTunnel(app.page, id);
+  await waitForCard(app.page, id, c => c.statusText === 'Активен');
+  const cloudflaredPid = Number(fs.readFileSync(pidFile, 'utf8'));
+  t.after(() => { try { process.kill(cloudflaredPid, 'SIGKILL'); } catch {} });
+
+  // Аварийное завершение: SIGKILL только главному процессу Electron,
+  // без штатного выхода и без очистки группы процессов
+  app.proc.kill('SIGKILL');
+  await app.exited;
+
+  const deadline = Date.now() + 5000;
+  while (isAlive(cloudflaredPid) && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.equal(isAlive(cloudflaredPid), false, 'cloudflared должен завершиться вместе с приложением');
+});
+
+function isAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}

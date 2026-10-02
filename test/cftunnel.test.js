@@ -250,3 +250,24 @@ test('старый формат файла контрольной суммы (т
   assert.equal(fs.readFileSync(tunnel.binPath, 'utf8'), 'installed binary');
   assert.equal(JSON.parse(fs.readFileSync(tunnel.sidecarPath, 'utf8')).version, '2026.9.3');
 });
+
+test('close останавливает процесс cloudflared', { skip: fakeCloudflaredSkip }, async (t) => {
+  const dir = makeTmpDir(t);
+  const pidFile = path.join(dir, 'pid');
+  installFakeCloudflared(dir, [
+    `echo $$ > "${pidFile}"`,
+    'echo "INF |  https://close-test.trycloudflare.com  |" >&2',
+    'echo "INF Registered tunnel connection connIndex=0" >&2',
+    'exec sleep 30'
+  ].join('\n'));
+
+  const tunnel = new CFTunnel({ port: 1, binDir: dir });
+  const err = await new Promise(resolve => tunnel.open(resolve));
+  assert.equal(err, null);
+  assert.equal(tunnel.url, 'https://close-test.trycloudflare.com');
+  const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+  assert.ok(isAlive(pid));
+
+  tunnel.close();
+  await waitFor(() => !isAlive(pid), { timeout: 5000 });
+});

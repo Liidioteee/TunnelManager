@@ -28,8 +28,8 @@ export default [
     }
   },
   {
-    // preload выполняется в изолированном контексте и подключается как CommonJS
-    files: ['preload.cjs'],
+    // CommonJS: preload (изолированный контекст окна) и надзиратель cloudflared
+    files: ['**/*.cjs'],
     languageOptions: {
       sourceType: 'commonjs',
       globals: globals.node
