@@ -497,7 +497,8 @@ function updateStatsStrip() {
   statActiveEl.textContent = active;
   statTotalEl.textContent = total;
   statIssuesEl.textContent = issues;
-  statIssuesPill.hidden = issues === 0;
+  // класс, а не атрибут hidden: display у .stat-pill перебивает [hidden]
+  statIssuesPill.classList.toggle('hidden', issues === 0);
 }
 
 // --- RENDER TUNNELS ---

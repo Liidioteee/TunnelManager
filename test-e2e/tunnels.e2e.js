@@ -346,6 +346,20 @@ test('фильтр «С проблемами» показывает и пред�
   assert.equal(await cardInfo(app.page, idle), null);
 });
 
+test('плашка «с проблемами» скрыта, пока проблем нет', async (t) => {
+  const api = await startFakeApi(t, [{ status: 403, json: { message: 'Forbidden' } }]);
+  const app = await launchApp(t, { env: { TUNNEL_MANAGER_LT_SERVER: api.host } });
+  const pillVisible = () => app.page.evaluate(() => getComputedStyle(document.getElementById('stat-issues-pill')).display !== 'none');
+
+  const id = await createTunnel(app.page, { name: 'Broken', port: 3000 });
+  assert.equal(await pillVisible(), false);
+
+  await toggleTunnel(app.page, id);
+  await waitForCard(app.page, id, c => c.statusType === 'error');
+  assert.equal(await pillVisible(), true);
+  assert.equal(await app.page.evaluate(() => document.getElementById('stat-issues').textContent), '1');
+});
+
 async function waitUntil(predicate, timeout = 10000) {
   const deadline = Date.now() + timeout;
   while (!predicate()) {
