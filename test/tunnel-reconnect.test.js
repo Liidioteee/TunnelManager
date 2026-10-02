@@ -42,3 +42,27 @@ test('Tunnel переподключается при отказе туннель
   assert.equal(tunnel.url, 'https://second.loca.lt');
   assert.equal(api.requests.length, 2);
 });
+
+test('недоступный сервер localtunnel — предупреждение о повторе, а не ошибка', async (t) => {
+  const http = await import('node:http');
+  const server = http.createServer((req, res) => { res.writeHead(503); res.end('<html>down</html>'); });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+
+  const tunnel = new Tunnel({ host: `http://127.0.0.1:${server.address().port}`, port: 9 });
+  const statuses = [];
+  tunnel.on('status', (s) => statuses.push(s));
+  const opened = new Promise(resolve => tunnel.open(resolve));
+
+  const retry = await new Promise(resolve => {
+    const check = (s) => { if (/Повтор/.test(s.message)) resolve(s); };
+    statuses.forEach(check);
+    tunnel.on('status', check);
+  });
+  tunnel.close();
+  await opened;
+
+  assert.equal(retry.type, 'warning');
+  assert.equal(retry.code, 'SERVER_RETRY');
+  assert.ok(!statuses.some(s => s.type === 'error'), JSON.stringify(statuses));
+});

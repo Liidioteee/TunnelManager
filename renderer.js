@@ -924,7 +924,6 @@ window.api.onTunnelStatus((data) => {
 
   const dot = document.getElementById(`status-dot-${data.id}`);
   const text = document.getElementById(`status-text-${data.id}`);
-  const toggle = document.getElementById(`switch-${data.id}`);
   const card = tunnelsList.querySelector(`.tunnel-card[data-id="${data.id}"]`);
 
   if (dot) {
@@ -936,10 +935,6 @@ window.api.onTunnelStatus((data) => {
   if (card) {
     card.className = card.className.replace(/\bstatus-\S+/g, '').trim();
     card.classList.add(`status-${data.status.type}`);
-  }
-
-  if (toggle && data.status.type === 'error') {
-    toggle.checked = false;
   }
 
   const config = currentConfigs.find(c => c.id === data.id);

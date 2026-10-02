@@ -79,7 +79,8 @@ test('недоступный локальный порт распознаётс�
   tunnel.emit('status', { type: 'success', message: 'Активен' });
   await flush();
   tunnel.emit('status', { type: 'warning', message: 'Локальный порт — просто текст, без кода' });
-  assert.equal(ctx.manager.tunnelStates.c1.connectionState, 'starting');
+  assert.equal(ctx.manager.tunnelStates.c1.localPortState, 'open');
+  assert.equal(ctx.manager.tunnelStates.c1.connectionState, 'retrying');
 });
 
 test('устаревший результат проверки порта не перезаписывает более свежий статус', async () => {
@@ -131,4 +132,14 @@ test('периодическая проверка порта не затирае
 
   assert.equal(ctx.manager.tunnelStates.c1.localPortState, 'closed');
   assert.equal(ctx.lastStatus().type, 'warning');
+});
+
+test('повторные попытки подключения показываются предупреждением, туннель остаётся включённым', async () => {
+  const ctx = makeManager({ configs: [makeConfig()] });
+  ctx.manager.toggle('c1', true);
+  ctx.tunnels[0].emit('status', { type: 'warning', code: 'SERVER_RETRY', message: 'Сервер недоступен. Повтор через 2с...' });
+
+  assert.deepEqual(ctx.lastStatus(), { type: 'warning', message: 'Сервер недоступен. Повтор через 2с...' });
+  assert.equal(ctx.storedConfig().active, true);
+  assert.equal(ctx.tunnels[0].closed, false);
 });
