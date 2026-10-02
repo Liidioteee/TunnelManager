@@ -86,3 +86,48 @@ test('сервер, приславший заголовки и замолчав�
   const status = await Promise.race([retry, new Promise(r => setTimeout(() => r(null), 3000))]);
   assert.ok(status, 'за 3 с нет повторной попытки — запрос завис на чтении тела');
 });
+
+function openResult(tunnel, timeoutMs = 3000) {
+  return Promise.race([
+    new Promise(resolve => tunnel.open(err => resolve(err || 'ok'))),
+    new Promise(resolve => setTimeout(() => resolve('timeout'), timeoutMs))
+  ]);
+}
+
+test('отказ сервера 4xx показывается ошибкой с текстом сервера, без бесконечных повторов', async (t) => {
+  const api = await startFakeApi(t, [{
+    status: 403,
+    json: { message: 'Invalid subdomain. Subdomains must be lowercase and between 4 and 63 alphanumeric characters.' }
+  }]);
+  const tunnel = new Tunnel({ host: api.host, port: 9, subdomain: 'ab' });
+  t.after(() => tunnel.close());
+  const statuses = [];
+  tunnel.on('status', (s) => statuses.push(s));
+
+  const err = await openResult(tunnel);
+  assert.ok(err instanceof Error, `ожидалась ошибка, получено: ${err}`);
+  assert.match(err.message, /Invalid subdomain/);
+  assert.equal(api.requests.length, 1);
+  assert.ok(statuses.some(s => s.type === 'error' && /Invalid subdomain/.test(s.message)));
+});
+
+test('некорректный ответ сервера (недопустимый адрес туннеля) — ошибка, а не повторы', async (t) => {
+  const api = await startFakeApi(t, [{ id: 'x', ip: '127.0.0.1', port: 1, max_conn_count: 1, url: 'javascript:alert(1)' }]);
+  const tunnel = new Tunnel({ host: api.host, port: 9 });
+  t.after(() => tunnel.close());
+  const err = await openResult(tunnel);
+  assert.ok(err instanceof Error, `ожидалась ошибка, получено: ${err}`);
+  assert.match(err.message, /недопустимый URL/);
+  assert.equal(api.requests.length, 1);
+});
+
+for (const status of [429, 503]) {
+  test(`ответ ${status} — временная проблема, клиент повторяет запрос`, async (t) => {
+    const api = await startFakeApi(t, [{ status, json: { message: 'busy' } }]);
+    const tunnel = new Tunnel({ host: api.host, port: 9 });
+    t.after(() => tunnel.close());
+    const retry = new Promise(resolve => tunnel.on('status', (s) => { if (s.code === 'SERVER_RETRY') resolve(s); }));
+    tunnel.open(() => {});
+    assert.equal((await retry).type, 'warning');
+  });
+}

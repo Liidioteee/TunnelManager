@@ -23,9 +23,9 @@ async function startWorkingLocaltunnel(t, url = 'https://e2e.loca.lt') {
   return { tcp, api };
 }
 
-// Фейковый сервер localtunnel, который отвечает мусором — клиент повторяет попытки
+// Фейковый сервер localtunnel, временно недоступный (503) — клиент повторяет попытки
 async function startBrokenLocaltunnel(t) {
-  return startFakeApi(t, [{ message: 'temporarily unavailable' }]);
+  return startFakeApi(t, [{ status: 503, json: { message: 'temporarily unavailable' } }]);
 }
 
 test('создание и удаление туннеля через интерфейс', async (t) => {
@@ -110,6 +110,21 @@ test('редактирование подключающегося туннеля
   const info = await waitForCard(app.page, id, c => /Порт: 4000/.test(c.meta) && /Повтор/.test(c.statusText),
     { message: 'перезапуск с новым портом' });
   assert.equal(info.switchOn, true);
+});
+
+test('отказ сервера localtunnel показывается на карточке, туннель выключается', async (t) => {
+  const api = await startFakeApi(t, [{
+    status: 403,
+    json: { message: 'Invalid subdomain. Subdomains must be lowercase and between 4 and 63 alphanumeric characters.' }
+  }]);
+  const app = await launchApp(t, { env: { TUNNEL_MANAGER_LT_SERVER: api.host } });
+  const id = await createTunnel(app.page, { name: 'Rejected', port: 3000 });
+  await toggleTunnel(app.page, id);
+
+  const info = await waitForCard(app.page, id, c => c.statusType === 'error', { message: 'ошибка от сервера' });
+  assert.match(info.statusText, /Invalid subdomain/);
+  assert.equal(info.switchOn, false);
+  assert.equal(api.requests.length, 1, 'без повторных запросов');
 });
 
 async function waitUntil(predicate, timeout = 10000) {

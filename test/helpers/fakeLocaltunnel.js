@@ -23,16 +23,18 @@ export async function getClosedPort() {
 }
 
 // Фейковый API-сервер localtunnel: на каждый запрос отдаёт следующий
-// ответ из списка (последний повторяется). Ответ — функция или объект.
+// ответ из списка (последний повторяется). Ответ — функция или объект;
+// { status, json } задаёт код ответа (по умолчанию 200 и сам объект как тело).
 export async function startFakeApi(t, responses) {
   const requests = [];
   const server = http.createServer(async (req, res) => {
     requests.push(req.url);
     const index = Math.min(requests.length - 1, responses.length - 1);
     const item = responses[index];
-    const body = typeof item === 'function' ? await item() : item;
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(body));
+    const value = typeof item === 'function' ? await item() : item;
+    const withStatus = value && typeof value.status === 'number' && 'json' in value;
+    res.writeHead(withStatus ? value.status : 200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(withStatus ? value.json : value));
   });
   const port = await listen(server);
   t.after(() => close(server));
