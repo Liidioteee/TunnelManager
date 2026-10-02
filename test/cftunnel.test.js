@@ -67,3 +67,10 @@ test('аргументы запуска: HTTPS без проверки серт�
   const strict = new CFTunnel({ port: 8443, binDir: '/tmp', localProtocol: 'https', skipTlsVerify: false });
   assert.ok(!strict._buildArgs().includes('--no-tls-verify'));
 });
+
+test('аргументы запуска: IPv6-адрес берётся в квадратные скобки', () => {
+  const tunnel = new CFTunnel({ port: 3000, binDir: '/tmp', localHost: '::1' });
+  assert.equal(tunnel._buildArgs()[2], 'http://[::1]:3000');
+  const full = new CFTunnel({ port: 80, binDir: '/tmp', localHost: 'fe80::1:2' });
+  assert.equal(full._buildArgs()[2], 'http://[fe80::1:2]:80');
+});
