@@ -290,6 +290,25 @@ test('карточка после обновления остаётся рабо
   assert.equal(await app.page.evaluate(() => document.querySelectorAll('.tunnel-card').length), 1);
 });
 
+test('ошибка действия показывается понятным текстом, переключатель возвращается назад', async (t) => {
+  const app = await launchApp(t);
+  const id = await createTunnel(app.page, { name: 'Gone', port: 3000 });
+  // туннель удалён «где-то ещё» (напрямую через IPC), карточка в окне осталась
+  await app.page.evaluate((id) => window.api.deleteConfig(id), id);
+  const unhandled = await app.page.evaluate(() => {
+    window.__unhandled = [];
+    window.addEventListener('unhandledrejection', (e) => window.__unhandled.push(String(e.reason)));
+    return true;
+  });
+  assert.ok(unhandled);
+
+  await toggleTunnel(app.page, id);
+  const toast = await app.page.waitFor(() => document.querySelector('.toast.error')?.textContent);
+  assert.equal(toast, 'Туннель не найден');
+  assert.deepEqual(await app.page.evaluate(() => window.__unhandled), []);
+  assert.equal(await cardInfo(app.page, id), null, 'карточка удалённого туннеля исчезла после обновления списка');
+});
+
 async function waitUntil(predicate, timeout = 10000) {
   const deadline = Date.now() + timeout;
   while (!predicate()) {

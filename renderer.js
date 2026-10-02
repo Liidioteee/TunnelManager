@@ -110,6 +110,18 @@ function ipcErrorMessage(err, fallback) {
   return message || fallback;
 }
 
+// Выполняет действие окна: любая ошибка (в том числе из main-процесса)
+// показывается уведомлением, а не теряется как необработанный промис
+async function runAction(action, fallbackMessage) {
+  try {
+    return await action();
+  } catch (err) {
+    console.error(fallbackMessage, err);
+    showToast(ipcErrorMessage(err, fallbackMessage), 'error');
+    return undefined;
+  }
+}
+
 // --- TOAST NOTIFICATIONS ---
 function showToast(message, type = 'info') {
   const toast = document.createElement('div');
@@ -313,7 +325,7 @@ addBtn.addEventListener('click', async () => {
   skipTlsVerifyCheckbox.checked = true;
   tlsCheckboxTouched = false;
 
-  const settings = await window.api.getSettings();
+  const settings = await runAction(() => window.api.getSettings(), 'Не удалось загрузить настройки');
   providerSelect.value = (settings && settings.defaultProvider) || 'lt';
   if (providerSelect.value === 'cf') {
     subdomainGroup.classList.add('hidden');
@@ -387,12 +399,8 @@ saveBtn.addEventListener('click', async () => {
 
 // --- LOAD TUNNELS ---
 async function loadTunnels() {
-  try {
-    const configs = await window.api.getConfigs();
-    renderTunnels(configs);
-  } catch (err) {
-    console.error('Ошибка загрузки конфигураций:', err);
-  }
+  const configs = await runAction(() => window.api.getConfigs(), 'Не удалось загрузить список туннелей');
+  if (configs) renderTunnels(configs);
 }
 
 // --- SEARCH, FILTER & SORT ---
@@ -611,7 +619,7 @@ function createCardElement(id) {
     if (btn) {
       const action = btn.getAttribute('data-action');
       if (action === 'open-url') {
-        window.api.openExternal(btn.getAttribute('data-url'));
+        runAction(() => window.api.openExternal(btn.getAttribute('data-url')), 'Не удалось открыть ссылку');
       } else if (action === 'copy-url') {
         copyLink(btn.getAttribute('data-url'));
       } else if (action === 'qr-url') {
@@ -778,12 +786,12 @@ function fallbackCopy(text) {
 
 // --- TOGGLE & DELETE TUNNEL ---
 async function toggleTunnel(id, state) {
-  try {
-    const configs = await window.api.toggleTunnel(id, state);
+  const configs = await runAction(() => window.api.toggleTunnel(id, state), 'Ошибка при изменении состояния туннеля');
+  if (configs) {
     renderTunnels(configs);
-  } catch (err) {
-    console.error('Ошибка переключения туннеля:', err);
-    showToast('Ошибка при изменении состояния туннеля', 'error');
+  } else {
+    // действие не удалось — показываем настоящее состояние (переключатель вернётся назад)
+    await loadTunnels();
   }
 }
 
@@ -794,9 +802,11 @@ async function deleteTunnel(id, name) {
   );
   if (confirmed) {
     selectedIds.delete(id);
-    const configs = await window.api.deleteConfig(id);
-    renderTunnels(configs);
-    showToast('Туннель удален', 'info');
+    const configs = await runAction(() => window.api.deleteConfig(id), 'Не удалось удалить туннель');
+    if (configs) {
+      renderTunnels(configs);
+      showToast('Туннель удален', 'info');
+    }
   }
 }
 
@@ -853,7 +863,8 @@ batchStartBtn.addEventListener('click', async () => {
   const ids = Array.from(selectedIds);
   if (ids.length === 0) return;
   selectedIds.clear();
-  const configs = await window.api.batchToggle(ids, true);
+  const configs = await runAction(() => window.api.batchToggle(ids, true), 'Не удалось запустить выбранные туннели');
+  if (!configs) return loadTunnels();
   renderTunnels(configs);
   showToast(`Запуск выбранных (${ids.length} шт.)`, 'info');
 });
@@ -862,7 +873,8 @@ batchStopBtn.addEventListener('click', async () => {
   const ids = Array.from(selectedIds);
   if (ids.length === 0) return;
   selectedIds.clear();
-  const configs = await window.api.batchToggle(ids, false);
+  const configs = await runAction(() => window.api.batchToggle(ids, false), 'Не удалось остановить выбранные туннели');
+  if (!configs) return loadTunnels();
   renderTunnels(configs);
   showToast(`Остановка выбранных (${ids.length} шт.)`, 'info');
 });
@@ -876,7 +888,8 @@ batchDeleteBtn.addEventListener('click', async () => {
   );
   if (confirmed) {
     selectedIds.clear();
-    const configs = await window.api.batchDelete(ids);
+    const configs = await runAction(() => window.api.batchDelete(ids), 'Не удалось удалить выбранные туннели');
+    if (!configs) return loadTunnels();
     renderTunnels(configs);
     showToast(`Удалено ${ids.length} конфигураций`, 'info');
   }
@@ -893,7 +906,8 @@ function createQrImage(text) {
 
   window.api.generateQr(text).then(dataUrl => {
     img.src = dataUrl;
-  }).catch(() => {
+  }).catch((err) => {
+    console.error('Ошибка генерации QR-кода', err);
     qrCodeContainer.innerHTML = `
       <div style="text-align: center; color: var(--text-muted); padding: 20px;">
         <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
@@ -921,8 +935,11 @@ logsBtn.addEventListener('click', async () => {
 });
 
 async function refreshLogs() {
-  rawLogsCache = await window.api.getLogs();
-  renderLogsView();
+  const logs = await runAction(() => window.api.getLogs(), 'Не удалось загрузить журнал');
+  if (logs) {
+    rawLogsCache = logs;
+    renderLogsView();
+  }
 }
 
 function renderLogsView() {
@@ -958,14 +975,15 @@ logsSearchInput.addEventListener('input', () => renderLogsView());
 logsLevelFilter.addEventListener('change', () => renderLogsView());
 
 logsClearBtn.addEventListener('click', async () => {
-  await window.api.clearLogs();
+  const cleared = await runAction(() => window.api.clearLogs(), 'Не удалось очистить журнал');
+  if (!cleared) return;
   rawLogsCache = [];
   renderLogsView();
   showToast('Логи в памяти очищены', 'info');
 });
 
 logsOpenFolderBtn.addEventListener('click', () => {
-  window.api.openLogFolder();
+  runAction(() => window.api.openLogFolder(), 'Не удалось открыть папку с логами');
 });
 
 logsCopyBtn.addEventListener('click', () => {
@@ -979,7 +997,8 @@ logsCopyBtn.addEventListener('click', () => {
 
 // --- SETTINGS MODAL ---
 settingsBtn.addEventListener('click', async () => {
-  const settings = await window.api.getSettings();
+  const settings = await runAction(() => window.api.getSettings(), 'Не удалось загрузить настройки');
+  if (!settings) return;
   settingAutoLaunch.checked = !!settings.autoLaunch;
   settingStartMinimized.checked = !!settings.startMinimized;
   settingCloseToTray.checked = settings.closeToTray !== false;
@@ -996,7 +1015,8 @@ settingsSaveBtn.addEventListener('click', async () => {
     notifications: settingNotifications.checked,
     defaultProvider: settingDefaultProvider.value
   };
-  await window.api.saveSettings(newSettings);
+  const saved = await runAction(() => window.api.saveSettings(newSettings), 'Не удалось сохранить настройки');
+  if (!saved) return;
   settingsModal.classList.add('hidden');
   showToast('Настройки сохранены', 'success');
 });
@@ -1007,7 +1027,8 @@ importExportBtn.addEventListener('click', () => {
 });
 
 exportBtn.addEventListener('click', async () => {
-  const res = await window.api.exportConfigs();
+  const res = await runAction(() => window.api.exportConfigs(), 'Не удалось экспортировать конфигурации');
+  if (!res) return;
   if (res.success) {
     showToast(`Экспортировано ${res.count} конфигураций`, 'success');
     backupModal.classList.add('hidden');
@@ -1017,7 +1038,8 @@ exportBtn.addEventListener('click', async () => {
 });
 
 importBtn.addEventListener('click', async () => {
-  const res = await window.api.importConfigs();
+  const res = await runAction(() => window.api.importConfigs(), 'Не удалось импортировать конфигурации');
+  if (!res) return;
   if (res.success) {
     showToast(`Импортировано ${res.count} конфигураций`, 'success');
     renderTunnels(res.configs);
