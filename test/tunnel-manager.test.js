@@ -16,7 +16,7 @@ test('addConfig сохраняет очищенную конфигурацию �
 
 test('addConfig отклоняет некорректную конфигурацию', () => {
   const { manager, store } = makeManager();
-  assert.throws(() => manager.addConfig({ port: 0 }), /Некорректные параметры/);
+  assert.throws(() => manager.addConfig({ port: 0 }), /Порт должен быть числом от 1 до 65535/);
   assert.deepEqual(store.get('configs'), []);
 });
 
@@ -237,4 +237,10 @@ test('importConfigs: файл с null или не тем типом в корн�
     assert.equal(res.success, false, JSON.stringify(parsed));
     assert.match(res.error, /не содержит корректных конфигураций/);
   }
+});
+
+test('addConfig и updateConfig сообщают конкретную причину отказа', () => {
+  const { manager } = makeManager({ configs: [makeConfig()] });
+  assert.throws(() => manager.addConfig({ port: 80, subdomain: 'ab' }), /Субдомен/);
+  assert.throws(() => manager.updateConfig({ id: 'c1', port: 99999 }), /Порт/);
 });

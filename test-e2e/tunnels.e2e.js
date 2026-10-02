@@ -162,6 +162,32 @@ test('проверка TLS-сертификата: по умолчанию пр�
   assert.equal(saved.skipTlsVerify, false);
 });
 
+test('ошибка валидации показывается понятным текстом, форма остаётся открытой', async (t) => {
+  const app = await launchApp(t);
+  const page = app.page;
+  await page.evaluate(() => document.getElementById('add-btn').click());
+  await page.waitFor(() => !document.getElementById('add-form').classList.contains('hidden'));
+  await page.evaluate(() => {
+    const set = (id, value) => {
+      const el = document.getElementById(id);
+      el.value = value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    set('name-input', 'Short subdomain');
+    set('port-input', '3000');
+    set('subdomain-input', 'ab');
+    document.getElementById('save-btn').click();
+  });
+
+  const toast = await page.waitFor(() => {
+    const el = document.querySelector('.toast.error');
+    return el && el.textContent;
+  });
+  assert.equal(toast, 'Субдомен должен состоять из 4–63 латинских букв и цифр (дефисы — только внутри)');
+  assert.equal(await page.evaluate(() => document.getElementById('add-form').classList.contains('hidden')), false);
+  assert.equal(await page.evaluate(() => document.querySelectorAll('.tunnel-card').length), 0);
+});
+
 async function waitUntil(predicate, timeout = 10000) {
   const deadline = Date.now() + timeout;
   while (!predicate()) {

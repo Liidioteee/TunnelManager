@@ -101,6 +101,15 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+// --- IPC ERRORS ---
+// Electron добавляет к тексту ошибки из main-процесса служебный префикс
+// "Error invoking remote method 'канал': Error: " — пользователю он не нужен
+function ipcErrorMessage(err, fallback) {
+  const message = String((err && err.message) || '')
+    .replace(/^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/, '');
+  return message || fallback;
+}
+
 // --- TOAST NOTIFICATIONS ---
 function showToast(message, type = 'info') {
   const toast = document.createElement('div');
@@ -367,7 +376,7 @@ saveBtn.addEventListener('click', async () => {
       showToast('Туннель успешно создан', 'success');
     }
   } catch (err) {
-    showToast(err.message || 'Некорректные параметры конфигурации', 'error');
+    showToast(ipcErrorMessage(err, 'Некорректные параметры конфигурации'), 'error');
     return;
   }
 

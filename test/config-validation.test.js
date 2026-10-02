@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sanitizeConfigInput, parseLocaltunnelServer, isLoopbackHost } from '../lib/configValidation.js';
+import { sanitizeConfigInput, validateConfigInput, parseLocaltunnelServer, isLoopbackHost } from '../lib/configValidation.js';
 
 const base = { name: 'API', port: '3000' };
 
@@ -18,7 +18,7 @@ test('корректная конфигурация нормализуется',
     {
       name: 'Backend',
       port: '8080',
-      subdomain: 'my-app',
+      subdomain: '', // у Cloudflare субдомена нет — не сохраняется
       provider: 'cf',
       localHost: 'docker.local',
       localProtocol: 'https',
@@ -74,7 +74,8 @@ test('неизвестные провайдер и протокол заменя
 
 test('субдомен очищается от недопустимых символов и крайних дефисов', () => {
   assert.equal(sanitizeConfigInput({ ...base, subdomain: '--My_App!!--' }).subdomain, 'myapp');
-  assert.equal(sanitizeConfigInput({ ...base, subdomain: 'a'.repeat(100) }).subdomain.length, 63);
+  // слишком длинный субдомен не обрезается молча (получился бы другой адрес), а отклоняется
+  assert.equal(sanitizeConfigInput({ ...base, subdomain: 'a'.repeat(100) }), null);
 });
 
 test('имя обрезается до 60 символов', () => {
@@ -125,4 +126,27 @@ test('не объект на входе — null, а не исключение',
   for (const value of [null, undefined, 42, 'str', true, []]) {
     assert.equal(sanitizeConfigInput(value), null, JSON.stringify(value));
   }
+});
+
+test('validateConfigInput называет конкретную проблему', () => {
+  assert.match(validateConfigInput({ port: 0 }).error, /Порт/);
+  assert.match(validateConfigInput({ port: 80, localHost: 'a b' }).error, /хост/);
+  assert.match(validateConfigInput({ port: 80, subdomain: 'ab' }).error, /Субдомен/);
+  assert.match(validateConfigInput(null).error, /Некорректные данные/);
+  const ok = validateConfigInput({ port: 80, subdomain: 'my-app' });
+  assert.equal(ok.error, null);
+  assert.equal(ok.config.subdomain, 'my-app');
+});
+
+test('субдомен LocalTunnel: правила сервера localtunnel', () => {
+  const sub = (subdomain, provider = 'lt') => validateConfigInput({ port: 80, provider, subdomain });
+  for (const valid of ['', 'abcd', 'my-app', 'a'.repeat(63), `a${'-'.repeat(4)}b`]) {
+    assert.equal(sub(valid).error, null, valid);
+  }
+  for (const invalid of ['abc', 'ab-c', 'a'.repeat(66)]) {
+    assert.match(String(sub(invalid).error), /Субдомен/, invalid);
+  }
+  // для Cloudflare субдомен не используется и не проверяется
+  assert.equal(sub('ab', 'cf').error, null);
+  assert.equal(sub('ab', 'cf').config.subdomain, '');
 });
