@@ -35,12 +35,26 @@ test('close от старого экземпляра не останавлива
   assert.equal(ctx.storedConfig().active, true);
 });
 
-test('самопроизвольное закрытие туннеля останавливает его в менеджере', async () => {
-  const ctx = makeManager({ configs: [makeConfig()] });
-  const tunnel = await startRunning(ctx);
-  tunnel.emit('close');
-  assert.equal(ctx.manager.activeTunnels.c1, undefined);
-  assert.equal(ctx.manager.tunnelStates.c1.connectionState, 'stopped');
+test('после неожиданного завершения туннель перезапускается и остаётся включённым', async () => {
+  const ctx = makeManager({ configs: [makeConfig()], restartBaseDelay: 20 });
+  ctx.manager.toggle('c1', true);
+  ctx.tunnels[0].succeed('https://first.trycloudflare.com');
+  await flush();
+
+  ctx.tunnels[0].emit('close'); // процесс туннеля завершился сам
+
+  assert.equal(ctx.storedConfig().active, true);
+  assert.equal(ctx.storedConfig().url, '');
+  assert.equal(ctx.lastStatus().type, 'warning');
+  assert.match(ctx.lastStatus().message, /Перезапуск/);
+  assert.equal(ctx.notifications.at(-1).title, 'Туннель перезапускается');
+
+  await new Promise(resolve => setTimeout(resolve, 60));
+  assert.equal(ctx.tunnels.length, 2, 'запущен новый туннель');
+  ctx.tunnels[1].succeed('https://second.trycloudflare.com');
+  await flush();
+  assert.equal(ctx.storedConfig().url, 'https://second.trycloudflare.com');
+  assert.equal(ctx.lastStatus().type, 'success');
 });
 
 test('после выхода из приложения активные туннели восстанавливаются при следующем запуске', async () => {
@@ -233,4 +247,58 @@ test('успешное открытие уже остановленного ту
   assert.equal(ctx.storedConfig().active, false);
   assert.equal(ctx.storedConfig().url, '');
   assert.deepEqual(ctx.notifications, []);
+});
+
+test('пауза перед перезапуском растёт при повторных падениях', async () => {
+  const ctx = makeManager({ configs: [makeConfig()], restartBaseDelay: 20 });
+  ctx.manager.toggle('c1', true);
+  ctx.tunnels[0].succeed();
+  await flush();
+
+  ctx.tunnels[0].emit('close');
+  assert.match(ctx.lastStatus().message, /через 1 с/); // 20 мс округляются до 1 с в тексте
+  assert.equal(ctx.manager.restartAttempts.c1, 1);
+  await new Promise(resolve => setTimeout(resolve, 40));
+  ctx.tunnels[1].succeed();
+  await flush();
+
+  ctx.tunnels[1].emit('close'); // снова упал сразу после запуска
+  assert.equal(ctx.manager.restartAttempts.c1, 2);
+  assert.equal(ctx.manager._restartDelay(2), 40);
+  assert.equal(ctx.manager._restartDelay(3), 80);
+  assert.equal(ctx.manager._restartDelay(20), 60000, 'не дольше минуты');
+});
+
+test('выключение отменяет запланированный перезапуск', async () => {
+  const ctx = makeManager({ configs: [makeConfig()], restartBaseDelay: 20 });
+  ctx.manager.toggle('c1', true);
+  ctx.tunnels[0].succeed();
+  await flush();
+  ctx.tunnels[0].emit('close');
+
+  ctx.manager.toggle('c1', false);
+  await new Promise(resolve => setTimeout(resolve, 60));
+
+  assert.equal(ctx.tunnels.length, 1, 'перезапуска не было');
+  assert.equal(ctx.storedConfig().active, false);
+  assert.deepEqual(ctx.lastStatus(), { type: 'info', message: 'Не активен' });
+});
+
+test('выход из приложения и удаление отменяют запланированный перезапуск', async () => {
+  const configs = [makeConfig(), makeConfig({ id: 'c2' })];
+  const ctx = makeManager({ configs, restartBaseDelay: 20 });
+  for (const id of ['c1', 'c2']) {
+    ctx.manager.toggle(id, true);
+    ctx.tunnels.at(-1).succeed();
+  }
+  await flush();
+  ctx.tunnels[0].emit('close');
+  ctx.tunnels[1].emit('close');
+
+  ctx.manager.deleteConfig('c1');
+  ctx.manager.shutdown();
+  await new Promise(resolve => setTimeout(resolve, 60));
+
+  assert.equal(ctx.tunnels.length, 2, 'перезапусков не было');
+  assert.equal(ctx.storedConfig('c2').active, true, 'после выхода туннель восстановится при следующем запуске');
 });

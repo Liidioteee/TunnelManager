@@ -58,7 +58,7 @@ export function makeConfig(overrides = {}) {
 }
 
 // Менеджер с фейковыми зависимостями; tunnels — все созданные туннели
-export function makeManager({ configs = [], portOpen = true } = {}) {
+export function makeManager({ configs = [], portOpen = true, restartBaseDelay } = {}) {
   const store = new MemoryStore({ configs });
   const tunnels = [];
   const notifications = [];
@@ -76,7 +76,8 @@ export function makeManager({ configs = [], portOpen = true } = {}) {
     },
     checkLocalPort: (...args) => deps.checkLocalPort(...args),
     logger: silentLogger,
-    notify: (title, body) => notifications.push({ title, body })
+    notify: (title, body) => notifications.push({ title, body }),
+    restartBaseDelay
   });
   for (const name of Object.keys(events)) {
     manager.on(name, (data) => events[name].push(data));

@@ -48,3 +48,33 @@ test('Cloudflare: причина неудачного запуска остаё�
   await new Promise(resolve => setTimeout(resolve, 1500));
   assert.equal((await waitForCard(app.page, id, Boolean)).statusType, 'error');
 });
+
+test('Cloudflare: упавший процесс перезапускается, туннель остаётся включённым', { skip }, async (t) => {
+  const local = http.createServer((req, res) => res.end('ok'));
+  const port = await listen(local);
+  t.after(() => close(local));
+
+  const userDataDir = makeUserDataDir(t);
+  // Первый запуск подключается и через секунду падает, второй работает
+  installFakeCloudflared(userDataDir, [
+    'COUNT_FILE="$(dirname "$0")/fake-runs"',
+    'n=$(cat "$COUNT_FILE" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$COUNT_FILE"',
+    'echo "INF |  https://run$n.trycloudflare.com  |" >&2',
+    'echo "INF Registered tunnel connection connIndex=0" >&2',
+    'if [ "$n" = 1 ]; then sleep 1; exit 1; fi',
+    'exec sleep 600'
+  ].join('\n'));
+
+  const app = await launchApp(t, { userDataDir });
+  const id = await createTunnel(app.page, { name: 'CF crash', port, provider: 'cf' });
+  await toggleTunnel(app.page, id);
+  await waitForCard(app.page, id, c => c.url === 'https://run1.trycloudflare.com', { message: 'первый запуск' });
+
+  const restarting = await waitForCard(app.page, id, c => /Перезапуск/.test(c.statusText), { message: 'ожидание перезапуска' });
+  assert.equal(restarting.switchOn, true);
+  assert.equal(restarting.statusType, 'warning');
+
+  const info = await waitForCard(app.page, id, c => c.url === 'https://run2.trycloudflare.com' && c.statusText === 'Активен',
+    { message: 'после перезапуска' });
+  assert.equal(info.switchOn, true);
+});
