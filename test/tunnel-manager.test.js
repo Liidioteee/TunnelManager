@@ -244,3 +244,35 @@ test('addConfig и updateConfig сообщают конкретную причи
   assert.throws(() => manager.addConfig({ port: 80, subdomain: 'ab' }), /Субдомен/);
   assert.throws(() => manager.updateConfig({ id: 'c1', port: 99999 }), /Порт/);
 });
+
+test('toggle принимает только булево состояние и существующий туннель', () => {
+  const { manager, store, tunnels } = makeManager({ configs: [makeConfig()] });
+  for (const state of ['true', 1, null, undefined, {}]) {
+    assert.throws(() => manager.toggle('c1', state), /состояние/, String(state));
+  }
+  assert.throws(() => manager.toggle('missing', true), /не найден/);
+  assert.throws(() => manager.toggle({ id: 'c1' }, true), /не найден/);
+  assert.equal(store.get('configs')[0].active, false);
+  assert.equal(tunnels.length, 0);
+});
+
+test('batchToggle и batchDelete проверяют список и пропускают неизвестные id', () => {
+  const configs = [makeConfig(), makeConfig({ id: 'c2' })];
+  const { manager, store, tunnels } = makeManager({ configs });
+  for (const ids of ['c1', null, 5, { 0: 'c1' }, [1, 2]]) {
+    assert.throws(() => manager.batchToggle(ids, true), /список/, JSON.stringify(ids));
+    assert.throws(() => manager.batchDelete(ids), /список/, JSON.stringify(ids));
+  }
+  assert.throws(() => manager.batchToggle(['c1'], 'yes'), /состояние/);
+
+  manager.batchToggle(['c1', 'c1', 'missing'], true);
+  assert.deepEqual(tunnels.map(t => t.config.id), ['c1'], 'повторы и неизвестные id не запускаются');
+  manager.batchDelete(['missing', 'c2']);
+  assert.deepEqual(store.get('configs').map(c => c.id), ['c1']);
+});
+
+test('deleteConfig: некорректный id — ошибка, хранилище не меняется', () => {
+  const { manager, store } = makeManager({ configs: [makeConfig()] });
+  assert.throws(() => manager.deleteConfig(null), /не найден/);
+  assert.equal(store.get('configs').length, 1);
+});
