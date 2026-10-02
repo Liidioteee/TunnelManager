@@ -49,3 +49,21 @@ test('open сообщает об отмене, если туннель закр�
   assert.ok(err instanceof Error, String(err));
   assert.equal(tunnel.child, null, 'процесс cloudflared не запускается');
 });
+
+test('аргументы запуска: локальный адрес, протокол http2 и отключённое самообновление', () => {
+  const tunnel = new CFTunnel({ port: 3000, binDir: '/tmp' });
+  const args = tunnel._buildArgs();
+  assert.deepEqual(args.slice(0, 3), ['tunnel', '--url', 'http://localhost:3000']);
+  assert.ok(args.includes('--no-autoupdate'), 'cloudflared не должен обновлять сам себя');
+  assert.deepEqual(args.slice(args.indexOf('--protocol'), args.indexOf('--protocol') + 2), ['--protocol', 'http2']);
+  assert.ok(!args.includes('--no-tls-verify'));
+});
+
+test('аргументы запуска: HTTPS без проверки сертификата', () => {
+  const tunnel = new CFTunnel({ port: 8443, binDir: '/tmp', localProtocol: 'https', localHost: '192.168.1.5' });
+  const args = tunnel._buildArgs();
+  assert.equal(args[2], 'https://192.168.1.5:8443');
+  assert.ok(args.includes('--no-tls-verify'));
+  const strict = new CFTunnel({ port: 8443, binDir: '/tmp', localProtocol: 'https', skipTlsVerify: false });
+  assert.ok(!strict._buildArgs().includes('--no-tls-verify'));
+});
