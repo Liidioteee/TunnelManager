@@ -20,6 +20,14 @@ export default [
     }
   },
   {
+    // сквозные тесты: Node.js, плюс функции, которые выполняются в окне
+    // приложения через page.evaluate и обращаются к document/window
+    files: ['test-e2e/**/*.js'],
+    languageOptions: {
+      globals: { ...globals.node, ...globals.browser }
+    }
+  },
+  {
     // preload выполняется в изолированном контексте и подключается как CommonJS
     files: ['preload.cjs'],
     languageOptions: {

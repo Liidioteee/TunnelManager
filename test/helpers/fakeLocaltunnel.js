@@ -5,8 +5,13 @@ export function listen(server, host = '127.0.0.1') {
   return new Promise((resolve) => server.listen(0, host, () => resolve(server.address().port)));
 }
 
+// Закрывает сервер, не дожидаясь клиентов: у HTTP-сервера close() иначе
+// ждёт завершения keep-alive соединений
 export function close(server) {
-  return new Promise((resolve) => server.close(() => resolve()));
+  return new Promise((resolve) => {
+    server.close(() => resolve());
+    if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+  });
 }
 
 // Порт, на котором гарантированно никто не слушает (соединение будет отклонено)

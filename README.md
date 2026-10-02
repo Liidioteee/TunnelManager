@@ -90,6 +90,23 @@ Download the latest `Tunnel Manager Setup x.x.x.exe` from the [Releases](https:/
 
 ---
 
+## 🧪 Development & Tests
+
+Development requires Node.js 22 or newer.
+
+```bash
+npm run lint       # ESLint
+npm test           # unit tests (node:test), a few seconds, no network needed
+npm run test:e2e   # end-to-end tests: launch the real app and drive its UI
+```
+
+- `npm install` enables a git pre-commit hook that runs `lint` and `test`; a commit is rejected if either fails.
+- End-to-end tests start Electron with a temporary data folder and use fake LocalTunnel/Cloudflare servers, so they need no network and never touch your real tunnels. On Linux without a display, run them under Xvfb: `xvfb-run -a npm run test:e2e`.
+- CI (GitHub Actions) runs lint, unit tests and `npm audit` on Ubuntu and Windows, and the end-to-end tests on Ubuntu.
+- `TUNNEL_MANAGER_LT_SERVER=https://your-server` points LocalTunnel tunnels to a self-hosted localtunnel server instead of `https://loca.lt`.
+
+---
+
 ## 📄 License
 
 Distributed under the MIT License. See the [LICENSE](LICENSE) file for details.

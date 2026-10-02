@@ -14,6 +14,7 @@
     "start": "electron .",
     "lint": "eslint .",
     "test": "node --test \"test/**/*.test.js\"",
+    "test:e2e": "node --test --test-concurrency=1 \"test-e2e/**/*.e2e.js\"",
     "build": "electron-builder",
     "prepare": "node scripts/install-git-hooks.js"
   },
@@ -47,6 +48,7 @@
     "files": [
       "**/*",
       "!test/**",
+      "!test-e2e/**",
       "!scripts/**",
       "!.githooks/**",
       "!.github/**",

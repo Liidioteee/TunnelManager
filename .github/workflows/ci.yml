@@ -29,3 +29,20 @@ jobs:
       - run: npm test
       # Падает при известных уязвимостях уровня high и выше в зависимостях
       - run: npm audit --audit-level=high
+
+  e2e:
+    name: End-to-end (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # Здесь нужен настоящий Electron, поэтому бинарник скачивается
+      - run: npm ci
+      - name: Install Xvfb
+        run: command -v xvfb-run || (sudo apt-get update && sudo apt-get install -y xvfb)
+      # Приложение запускается в виртуальном дисплее; сеть не нужна —
+      # серверы туннелей в тестах фейковые
+      - run: xvfb-run -a npm run test:e2e
