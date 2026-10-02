@@ -1,3 +1,4 @@
+/* global createUpdateOrder -- из updateOrder.js, подключается раньше */
 // DOM Elements
 const addBtn = document.getElementById('add-btn');
 const addForm = document.getElementById('add-form');
@@ -89,6 +90,7 @@ const latestRequestStats = {};
 const selectedIds = new Set();
 let confirmResolver = null;
 let rawLogsCache = [];
+const updateOrder = createUpdateOrder(); // updateOrder.js
 
 // --- XSS ESCAPING ---
 function escapeHtml(str) {
@@ -379,10 +381,10 @@ saveBtn.addEventListener('click', async () => {
   const sanitizedPort = portVal.toString();
   const skipTlsVerify = skipTlsVerifyCheckbox.checked;
 
-  let configs;
+  let list;
   try {
     if (editingId) {
-      configs = await window.api.updateConfig({
+      list = await window.api.updateConfig({
         id: editingId,
         name,
         port: sanitizedPort,
@@ -394,7 +396,7 @@ saveBtn.addEventListener('click', async () => {
       });
       showToast('Конфигурация обновлена', 'success');
     } else {
-      configs = await window.api.addConfig({
+      list = await window.api.addConfig({
         name,
         port: sanitizedPort,
         subdomain,
@@ -410,15 +412,25 @@ saveBtn.addEventListener('click', async () => {
     return;
   }
 
-  renderTunnels(configs);
+  applyList(list);
   addForm.classList.add('hidden');
   editingId = null;
 });
 
 // --- LOAD TUNNELS ---
 async function loadTunnels() {
-  const configs = await runAction(() => window.api.getConfigs(), 'Не удалось загрузить список туннелей');
-  if (configs) renderTunnels(configs);
+  const list = await runAction(() => window.api.getConfigs(), 'Не удалось загрузить список туннелей');
+  if (list) applyList(list);
+}
+
+// Показывает снимок списка из main-процесса, если он не устарел
+function applyList(list) {
+  if (!list || !updateOrder.acceptList(list.seq)) return;
+  for (const config of list.configs) {
+    // статус из более позднего события важнее статуса в снимке
+    if (updateOrder.hasNewerStatus(config.id, list.seq)) config.status = latestStatuses[config.id];
+  }
+  renderTunnels(list.configs);
 }
 
 // --- SEARCH, FILTER & SORT ---
@@ -811,9 +823,9 @@ function fallbackCopy(text, successMessage) {
 
 // --- TOGGLE & DELETE TUNNEL ---
 async function toggleTunnel(id, state) {
-  const configs = await runAction(() => window.api.toggleTunnel(id, state), 'Ошибка при изменении состояния туннеля');
-  if (configs) {
-    renderTunnels(configs);
+  const list = await runAction(() => window.api.toggleTunnel(id, state), 'Ошибка при изменении состояния туннеля');
+  if (list) {
+    applyList(list);
   } else {
     // действие не удалось — показываем настоящее состояние (переключатель вернётся назад)
     await loadTunnels();
@@ -827,9 +839,9 @@ async function deleteTunnel(id, name) {
   );
   if (confirmed) {
     selectedIds.delete(id);
-    const configs = await runAction(() => window.api.deleteConfig(id), 'Не удалось удалить туннель');
-    if (configs) {
-      renderTunnels(configs);
+    const list = await runAction(() => window.api.deleteConfig(id), 'Не удалось удалить туннель');
+    if (list) {
+      applyList(list);
       showToast('Туннель удален', 'info');
     }
   }
@@ -888,9 +900,9 @@ batchStartBtn.addEventListener('click', async () => {
   const ids = Array.from(selectedIds);
   if (ids.length === 0) return;
   selectedIds.clear();
-  const configs = await runAction(() => window.api.batchToggle(ids, true), 'Не удалось запустить выбранные туннели');
-  if (!configs) return loadTunnels();
-  renderTunnels(configs);
+  const list = await runAction(() => window.api.batchToggle(ids, true), 'Не удалось запустить выбранные туннели');
+  if (!list) return loadTunnels();
+  applyList(list);
   showToast(`Запуск выбранных (${ids.length} шт.)`, 'info');
 });
 
@@ -898,9 +910,9 @@ batchStopBtn.addEventListener('click', async () => {
   const ids = Array.from(selectedIds);
   if (ids.length === 0) return;
   selectedIds.clear();
-  const configs = await runAction(() => window.api.batchToggle(ids, false), 'Не удалось остановить выбранные туннели');
-  if (!configs) return loadTunnels();
-  renderTunnels(configs);
+  const list = await runAction(() => window.api.batchToggle(ids, false), 'Не удалось остановить выбранные туннели');
+  if (!list) return loadTunnels();
+  applyList(list);
   showToast(`Остановка выбранных (${ids.length} шт.)`, 'info');
 });
 
@@ -913,9 +925,9 @@ batchDeleteBtn.addEventListener('click', async () => {
   );
   if (confirmed) {
     selectedIds.clear();
-    const configs = await runAction(() => window.api.batchDelete(ids), 'Не удалось удалить выбранные туннели');
-    if (!configs) return loadTunnels();
-    renderTunnels(configs);
+    const list = await runAction(() => window.api.batchDelete(ids), 'Не удалось удалить выбранные туннели');
+    if (!list) return loadTunnels();
+    applyList(list);
     showToast(`Удалено ${ids.length} конфигураций`, 'info');
   }
 });
@@ -1067,7 +1079,7 @@ importBtn.addEventListener('click', async () => {
   if (!res) return;
   if (res.success) {
     showToast(`Импортировано ${res.count} конфигураций`, 'success');
-    renderTunnels(res.configs);
+    applyList(res.list);
     backupModal.classList.add('hidden');
   } else if (res.error) {
     showToast(`Ошибка импорта: ${res.error}`, 'error');
@@ -1077,6 +1089,7 @@ importBtn.addEventListener('click', async () => {
 
 // --- REAL-TIME IPC LISTENERS ---
 window.api.onTunnelStatus((data) => {
+  if (!updateOrder.acceptStatus(data.id, data.seq)) return; // устаревшее событие
   latestStatuses[data.id] = data.status;
 
   const config = currentConfigs.find(c => c.id === data.id);
@@ -1093,8 +1106,8 @@ window.api.onTunnelStatus((data) => {
   }
 });
 
-window.api.onConfigsUpdated((configs) => {
-  renderTunnels(configs);
+window.api.onConfigsUpdated((list) => {
+  applyList(list);
 });
 
 window.api.onUptimesUpdated((uptimes) => {

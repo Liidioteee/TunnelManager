@@ -163,7 +163,7 @@ test('проверка TLS-сертификата: по умолчанию пр�
     document.getElementById('port-input').dispatchEvent(new Event('input', { bubbles: true }));
     document.getElementById('save-btn').click();
   });
-  const saved = await page.waitFor(async () => (await window.api.getConfigs())[0]);
+  const saved = await page.waitFor(async () => (await window.api.getConfigs()).configs[0]);
   assert.equal(saved.localHost, '192.168.1.5');
   assert.equal(saved.skipTlsVerify, false);
 });

@@ -138,8 +138,14 @@ if (!gotTheLock) {
     notify: showNotification
   });
 
-  manager.on('status', (data) => sendToWindow('tunnel-status', data));
-  manager.on('configs', (configs) => sendToWindow('configs-updated', configs));
+  // Снимки списка туннелей и события статуса нумеруются в порядке создания:
+  // ответы на запросы и рассылки идут в окно разными очередями IPC и могут
+  // прийти не по порядку, а окно по номеру отбрасывает устаревшие (updateOrder.js)
+  let updateSeq = 0;
+  const listSnapshot = (configs) => ({ seq: ++updateSeq, configs });
+
+  manager.on('status', (data) => sendToWindow('tunnel-status', { ...data, seq: ++updateSeq }));
+  manager.on('configs', (configs) => sendToWindow('configs-updated', listSnapshot(configs)));
   manager.on('request-stats', (data) => sendToWindow('request-stats', data));
 
   function createWindow() {
@@ -284,13 +290,13 @@ if (!gotTheLock) {
     });
   }
 
-  handle('get-configs', () => manager.getConfigsWithStatuses());
-  handle('add-config', (event, rawConfig) => manager.addConfig(rawConfig));
-  handle('update-config', (event, rawConfig) => manager.updateConfig(rawConfig));
-  handle('delete-config', (event, id) => manager.deleteConfig(id));
-  handle('toggle-tunnel', (event, id, state) => manager.toggle(id, state));
-  handle('batch-toggle', (event, payload) => manager.batchToggle(payload && payload.ids, payload && payload.state));
-  handle('batch-delete', (event, ids) => manager.batchDelete(ids));
+  handle('get-configs', () => listSnapshot(manager.getConfigsWithStatuses()));
+  handle('add-config', (event, rawConfig) => listSnapshot(manager.addConfig(rawConfig)));
+  handle('update-config', (event, rawConfig) => listSnapshot(manager.updateConfig(rawConfig)));
+  handle('delete-config', (event, id) => listSnapshot(manager.deleteConfig(id)));
+  handle('toggle-tunnel', (event, id, state) => listSnapshot(manager.toggle(id, state)));
+  handle('batch-toggle', (event, payload) => listSnapshot(manager.batchToggle(payload && payload.ids, payload && payload.state)));
+  handle('batch-delete', (event, ids) => listSnapshot(manager.batchDelete(ids)));
 
   // Логи
   handle('get-logs', () => logger.getRecentLogs());
@@ -342,7 +348,8 @@ if (!gotTheLock) {
     if (canceled || !filePaths || filePaths.length === 0) return { success: false };
 
     try {
-      return manager.importConfigs(readBackupFile(filePaths[0]));
+      const { configs, ...result } = manager.importConfigs(readBackupFile(filePaths[0]));
+      return configs ? { ...result, list: listSnapshot(configs) } : result;
     } catch (err) {
       logger.error(`Ошибка импорта: ${err.message}`);
       return { success: false, error: err.message };

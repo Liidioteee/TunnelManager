@@ -302,3 +302,51 @@ test('выход из приложения и удаление отменяют 
   assert.equal(ctx.tunnels.length, 2, 'перезапусков не было');
   assert.equal(ctx.storedConfig('c2').active, true, 'после выхода туннель восстановится при следующем запуске');
 });
+
+// Окно получает список и событие статуса отдельными сообщениями. Список
+// рассылается первым и уже содержит итоговое состояние: между сообщениями
+// окно не показывает, например, ошибку при включённом переключателе
+function recordBroadcasts(manager) {
+  const order = [];
+  manager.on('configs', (configs) => order.push({ kind: 'configs', config: configs.find(c => c.id === 'c1') }));
+  manager.on('status', (data) => order.push({ kind: 'status', status: data.status }));
+  return order;
+}
+
+test('ошибка запуска: список с выключенным туннелем и ошибкой рассылается раньше статуса', async () => {
+  const ctx = makeManager({ configs: [makeConfig()] });
+  ctx.manager.toggle('c1', true);
+  const order = recordBroadcasts(ctx.manager);
+
+  ctx.tunnels[0].fail(new Error('отказ сервера'));
+  await flush();
+
+  assert.deepEqual(order.map(e => e.kind), ['configs', 'status']);
+  assert.equal(order[0].config.active, false);
+  assert.equal(order[0].config.status.type, 'error');
+  assert.deepEqual(order[0].config.status, order[1].status);
+});
+
+test('остановка: список с выключенным туннелем рассылается раньше статуса', async () => {
+  const ctx = makeManager({ configs: [makeConfig()] });
+  await startRunning(ctx);
+  const order = recordBroadcasts(ctx.manager);
+
+  ctx.manager.stop('c1');
+
+  assert.deepEqual(order.map(e => e.kind), ['configs', 'status']);
+  assert.equal(order[0].config.active, false);
+  assert.deepEqual(order[0].config.status, order[1].status);
+});
+
+test('перезапуск после падения: список рассылается раньше статуса', async () => {
+  const ctx = makeManager({ configs: [makeConfig()], restartBaseDelay: 1000 });
+  await startRunning(ctx);
+  const order = recordBroadcasts(ctx.manager);
+
+  ctx.tunnels[0].emit('close');
+  ctx.manager.stop('c1'); // отменяем запланированный перезапуск
+
+  assert.deepEqual(order.slice(0, 2).map(e => e.kind), ['configs', 'status']);
+  assert.equal(order[0].config.status.type, 'warning');
+});

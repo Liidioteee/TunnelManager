@@ -37,7 +37,7 @@ export default [
   },
   {
     // renderer — обычный скрипт страницы: браузерные глобальные объекты, без Node.js
-    files: ['renderer.js', 'theme.js'],
+    files: ['renderer.js', 'theme.js', 'updateOrder.js'],
     languageOptions: {
       sourceType: 'script',
       globals: globals.browser
