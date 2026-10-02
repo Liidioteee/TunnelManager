@@ -60,7 +60,9 @@ export function cardInfo(page, id) {
     const statusClass = [...card.classList].find(c => c.startsWith('status-'));
     const link = card.querySelector('.tunnel-url-link');
     const stats = card.querySelector('.stats-badge');
+    const uptime = card.querySelector('.uptime-badge');
     return {
+      uptime: uptime && !uptime.classList.contains('hidden') ? uptime.textContent.trim() : null,
       name: card.querySelector('.tunnel-name-text').textContent,
       meta: card.querySelector('.card-meta').innerText,
       switchOn: card.querySelector('input[type="checkbox"]').checked,

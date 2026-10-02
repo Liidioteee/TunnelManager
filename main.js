@@ -13,6 +13,7 @@ import { parseLocaltunnelServer } from './lib/configValidation.js';
 import { checkLocalPort } from './lib/localPort.js';
 import { DEFAULT_SETTINGS, sanitizeSettings } from './lib/settings.js';
 import { readBackupFile } from './lib/backupFile.js';
+import { createUptimeTicker } from './lib/uptimeTicker.js';
 import { isTrustedSenderUrl, safeExternalUrl } from './lib/ipcSecurity.js';
 
 dns.setDefaultResultOrder('ipv4first');
@@ -231,10 +232,16 @@ if (!gotTheLock) {
 
     manager.restoreActive();
 
-    // Периодическое обновление времени работы
-    setInterval(() => {
-      sendToWindow('uptimes-updated', manager.getUptimes());
-    }, 1000);
+    // Время работы туннелей — только пока окно видно
+    const uptimeTicker = createUptimeTicker({
+      getUptimes: () => manager.getUptimes(),
+      isWindowVisible: () => !!mainWindow && !mainWindow.isDestroyed()
+        && mainWindow.isVisible() && !mainWindow.isMinimized(),
+      send: (uptimes) => sendToWindow('uptimes-updated', uptimes)
+    });
+    uptimeTicker.start(1000);
+    mainWindow.on('show', uptimeTicker.windowShown);
+    mainWindow.on('restore', uptimeTicker.windowShown);
 
     // Параллельная неблокирующая проверка доступности локальных портов
     setInterval(() => {

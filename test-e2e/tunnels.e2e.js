@@ -56,6 +56,8 @@ test('LocalTunnel: туннель подключается, показывает
   assert.equal(info.switchOn, true);
   assert.equal(info.statusType, 'success');
   assert.equal(info.url, 'https://e2e.loca.lt');
+  const withUptime = await waitForCard(app.page, id, c => /^\d\d:\d\d:\d\d$/.test(c.uptime || ''), { message: 'время работы' });
+  assert.match(withUptime.uptime, /^00:00:0\d$/);
 
   // Запрос «из интернета» приходит через сокет туннеля в локальное приложение
   const [socket] = await connected;
