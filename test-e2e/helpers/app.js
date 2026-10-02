@@ -40,6 +40,14 @@ function defer(t, fn) {
   stack.push(fn);
 }
 
+// Окружение приложения. ELECTRON_RUN_AS_NODE нужно именно удалить: на Windows
+// даже пустое значение включает режим Node, и Electron не запускается как приложение
+function appEnv(extra) {
+  const env = { ...process.env, ...extra };
+  delete env.ELECTRON_RUN_AS_NODE;
+  return env;
+}
+
 export function makeUserDataDir(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tm-e2e-'));
   // процессы Chromium (например, crashpad) могут ещё мгновение писать
@@ -122,7 +130,7 @@ export async function launchApp(t, { userDataDir, env = {} } = {}) {
     '--remote-debugging-port=0'
   ];
   const proc = spawn(PACKAGED_APP || electronPath, PACKAGED_APP ? args : [...args, APP_ROOT], {
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '', ...env },
+    env: appEnv(env),
     stdio: ['ignore', 'pipe', 'pipe'],
     // Своя группа процессов: при очистке убиваем и потомков приложения
     // (например, cloudflared), иначе они переживают тест и держат его вывод
