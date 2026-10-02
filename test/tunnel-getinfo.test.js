@@ -56,3 +56,16 @@ test('_getInfo отклоняет некорректный локальный п
   assert.throws(() => makeTunnel({ port: '3000' })._getInfo(validBody), /локальный порт/);
   assert.throws(() => makeTunnel({ port: 70000 })._getInfo(validBody), /локальный порт/);
 });
+
+test('_getInfo ограничивает число соединений от недоверенного сервера', () => {
+  const t = makeTunnel();
+  assert.equal(t._getInfo({ ...validBody, max_conn_count: 100000 }).max_conn, 10);
+  assert.equal(t._getInfo({ ...validBody, max_conn_count: 3 }).max_conn, 3);
+});
+
+test('_getInfo: некорректное max_conn_count заменяется на 1', () => {
+  const t = makeTunnel();
+  for (const max_conn_count of [0, -5, 2.5, 'abc', '10', null, Infinity]) {
+    assert.equal(t._getInfo({ ...validBody, max_conn_count }).max_conn, 1, String(max_conn_count));
+  }
+});
