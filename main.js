@@ -12,6 +12,7 @@ import TunnelManager from './lib/TunnelManager.js';
 import { parseLocaltunnelServer } from './lib/configValidation.js';
 import { checkLocalPort } from './lib/localPort.js';
 import { DEFAULT_SETTINGS, sanitizeSettings } from './lib/settings.js';
+import { readBackupFile } from './lib/backupFile.js';
 
 dns.setDefaultResultOrder('ipv4first');
 
@@ -296,9 +297,7 @@ if (!gotTheLock) {
     if (canceled || !filePaths || filePaths.length === 0) return { success: false };
 
     try {
-      const rawData = fs.readFileSync(filePaths[0], 'utf8');
-      const parsed = JSON.parse(rawData);
-      return manager.importConfigs(parsed);
+      return manager.importConfigs(readBackupFile(filePaths[0]));
     } catch (err) {
       logger.error(`Ошибка импорта: ${err.message}`);
       return { success: false, error: err.message };

@@ -276,3 +276,11 @@ test('deleteConfig: некорректный id — ошибка, хранили
   assert.throws(() => manager.deleteConfig(null), /не найден/);
   assert.equal(store.get('configs').length, 1);
 });
+
+test('importConfigs: не больше 1000 записей за раз', () => {
+  const { manager, store } = makeManager();
+  const res = manager.importConfigs(Array.from({ length: 1001 }, (_, i) => ({ port: 1000 + i })));
+  assert.equal(res.success, false);
+  assert.match(res.error, /не больше 1000/);
+  assert.deepEqual(store.get('configs'), []);
+});
