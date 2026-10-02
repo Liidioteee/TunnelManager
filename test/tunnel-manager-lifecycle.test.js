@@ -42,3 +42,29 @@ test('самопроизвольное закрытие туннеля оста�
   assert.equal(ctx.manager.activeTunnels.c1, undefined);
   assert.equal(ctx.manager.tunnelStates.c1.connectionState, 'stopped');
 });
+
+test('после выхода из приложения активные туннели восстанавливаются при следующем запуске', async () => {
+  const configs = [makeConfig(), makeConfig({ id: 'c2' }), makeConfig({ id: 'c3' })];
+  const ctx = makeManager({ configs });
+  await startRunning(ctx, 'c1');
+  ctx.manager.toggle('c2', true); // пользователь включил, туннель ещё подключается
+
+  ctx.manager.shutdown();
+  await flush();
+
+  assert.ok(ctx.tunnels.every(t => t.closed), 'все туннели закрыты');
+  assert.deepEqual(ctx.store.get('configs').map(c => c.active), [true, true, false]);
+
+  // следующий запуск приложения с тем же хранилищем
+  const next = makeManager({ configs: ctx.store.get('configs') });
+  next.manager.restoreActive();
+  assert.deepEqual(next.tunnels.map(t => t.config.id), ['c1', 'c2']);
+});
+
+test('после shutdown туннели больше не запускаются', async () => {
+  const ctx = makeManager({ configs: [makeConfig()] });
+  ctx.manager.shutdown();
+  ctx.manager.start('c1');
+  ctx.manager.restoreActive();
+  assert.equal(ctx.tunnels.length, 0);
+});

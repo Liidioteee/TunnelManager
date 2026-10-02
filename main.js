@@ -210,8 +210,6 @@ if (!gotTheLock) {
       },
       { type: 'separator' },
       { label: 'Выход', click: () => {
-          isQuitting = true;
-          manager.stopAll();
           app.quit();
         }
       }
@@ -226,13 +224,11 @@ if (!gotTheLock) {
     });
   }
 
+  // При выходе туннели закрываются, но остаются активными в хранилище —
+  // при следующем запуске restoreActive() поднимет их снова
   app.on('before-quit', () => {
     isQuitting = true;
-    manager.stopAll();
-  });
-
-  app.on('will-quit', () => {
-    manager.stopAll();
+    manager.shutdown();
   });
 
   app.whenReady().then(() => {
