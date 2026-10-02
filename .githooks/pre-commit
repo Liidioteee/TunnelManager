@@ -1,0 +1,6 @@
+#!/bin/sh
+# Коммит создаётся, только если проходят линтер и все тесты.
+# Хук подключается автоматически при `npm install` (скрипт prepare).
+echo "pre-commit: npm run lint && npm test"
+npm run --silent lint || exit 1
+npm test --silent || exit 1

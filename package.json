@@ -1,7 +1,7 @@
 {
   "name": "tunnel-manager",
   "description": "Graphical interface for exposing localhost to the world",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -12,7 +12,11 @@
   "type": "module",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder"
+    "lint": "eslint .",
+    "test": "node --test \"test/**/*.test.js\"",
+    "test:e2e": "node --test --test-concurrency=1 \"test-e2e/**/*.e2e.js\"",
+    "build": "electron-builder",
+    "prepare": "node scripts/install-git-hooks.js"
   },
   "dependencies": {
     "debug": "^4.3.2",
@@ -20,11 +24,14 @@
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
-    "electron": "^43.2.0",
-    "electron-builder": "^26.15.3"
+    "@eslint/js": "^9.39.5",
+    "electron": "^43.7.7",
+    "electron-builder": "^26.15.3",
+    "eslint": "^9.39.5",
+    "globals": "^17.13.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "build": {
     "appId": "com.tunnel.manager",
@@ -37,6 +44,15 @@
     },
     "mac": {
       "target": "dmg"
-    }
+    },
+    "files": [
+      "**/*",
+      "!test/**",
+      "!test-e2e/**",
+      "!scripts/**",
+      "!.githooks/**",
+      "!.github/**",
+      "!eslint.config.js"
+    ]
   }
 }
