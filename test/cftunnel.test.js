@@ -35,3 +35,17 @@ test('_sanitizeLogText скрывает query string', () => {
     'GET /cb? done'
   );
 });
+
+test('open сообщает об отмене, если туннель закрыли во время подготовки бинарника', async (t) => {
+  const tunnel = new CFTunnel({ port: 3000, binDir: '/tmp' });
+  let finishEnsure;
+  t.mock.method(tunnel, '_ensureBinary', () => new Promise(resolve => { finishEnsure = resolve; }));
+
+  const result = new Promise(resolve => tunnel.open(resolve));
+  tunnel.close();
+  finishEnsure();
+
+  const err = await Promise.race([result, new Promise(r => setTimeout(() => r('колбэк не вызван'), 500))]);
+  assert.ok(err instanceof Error, String(err));
+  assert.equal(tunnel.child, null, 'процесс cloudflared не запускается');
+});
