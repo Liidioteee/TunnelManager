@@ -86,3 +86,43 @@ test('IPv6-адрес в заголовке Host записывается в к�
   assert.equal(await transform(req('/'), { host: '::1' }), req('/').replace('x.loca.lt', '[::1]'));
   assert.equal(await transform(req('/'), { host: 'fe80::1' }), req('/').replace('x.loca.lt', '[fe80::1]'));
 });
+
+async function collectRequests(input, { host, chunkSize = Infinity } = {}) {
+  const t = new HeaderHostTransformer(host ? { host } : {});
+  const requests = [];
+  const out = [];
+  t.on('request', (r) => requests.push(`${r.method} ${r.path}`));
+  t.on('data', (d) => out.push(d));
+  const done = new Promise((resolve) => t.on('end', resolve));
+  const buf = Buffer.from(input, 'latin1');
+  const size = Number.isFinite(chunkSize) ? chunkSize : buf.length;
+  for (let i = 0; i < buf.length; i += size) t.write(buf.subarray(i, i + size));
+  t.end();
+  await done;
+  return { requests, output: Buffer.concat(out).toString('latin1') };
+}
+
+for (const chunkSize of [Infinity, 1]) {
+  test(`событие request на каждый запрос, тела не считаются (${Number.isFinite(chunkSize) ? 'по 1 байту' : 'одним куском'})`, async () => {
+    const body = 'GET /fake HTTP/1.1\r\nHost: x\r\n\r\n';
+    const input = 'GET /a?x=1 HTTP/1.1\r\nHost: h\r\n\r\n'
+      + `POST /upload HTTP/1.1\r\nHost: h\r\nContent-Length: ${body.length}\r\n\r\n${body}`
+      + 'POST /c HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nGET \r\n0\r\n\r\n'
+      + 'DELETE /items/1 HTTP/1.1\r\nHost: h\r\n\r\n';
+    const { requests } = await collectRequests(input, { chunkSize });
+    assert.deepEqual(requests, ['GET /a?x=1', 'POST /upload', 'POST /c', 'DELETE /items/1']);
+  });
+}
+
+test('без host трансформер не меняет поток, но считает запросы', async () => {
+  const input = 'GET / HTTP/1.1\r\nHost: app.loca.lt\r\n\r\n';
+  const { requests, output } = await collectRequests(input);
+  assert.equal(output, input);
+  assert.deepEqual(requests, ['GET /']);
+});
+
+test('после Upgrade данные не разбираются как запросы', async () => {
+  const input = 'GET /ws HTTP/1.1\r\nHost: h\r\nUpgrade: websocket\r\n\r\nGET /not-a-request HTTP/1.1\r\n\r\n';
+  const { requests } = await collectRequests(input);
+  assert.deepEqual(requests, ['GET /ws']);
+});

@@ -130,3 +130,31 @@ test('после сброса локального соединения данн
   await waitFor(() => Buffer.concat(received).length >= expected.length, { timeout: 5000 });
   assert.equal(Buffer.concat(received).toString(), expected);
 });
+
+test('запросы через туннель на localhost считаются по заголовкам, а не по телу', async (t) => {
+  const localServer = http.createServer((req, res) => { req.resume(); req.on('end', () => res.end('ok')); });
+  await new Promise(resolve => localServer.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => { localServer.closeAllConnections(); localServer.close(resolve); }));
+
+  const remote = await startTcp(t);
+  const cluster = new TunnelCluster({
+    remote_ip: '127.0.0.1', remote_port: remote.port,
+    local_host: 'localhost', local_port: localServer.address().port
+  });
+  t.after(() => cluster.close());
+  const requests = [];
+  cluster.on('request', (r) => requests.push(`${r.method} ${r.path}`));
+
+  const accepted = once(remote.server, 'connection');
+  const connected = once(cluster, 'local-connect');
+  cluster.open();
+  const [serverSide] = await accepted;
+  await connected;
+
+  const body = 'GET /inside-body HTTP/1.1\r\n';
+  serverSide.write(`POST /form HTTP/1.1\r\nHost: a.loca.lt\r\nContent-Length: ${body.length}\r\n\r\n${body}`
+    + 'GET /next HTTP/1.1\r\nHost: a.loca.lt\r\n\r\n');
+  await waitFor(() => requests.length >= 2);
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.deepEqual(requests, ['POST /form', 'GET /next']);
+});
