@@ -143,3 +143,18 @@ test('повторные попытки подключения показыва�
   assert.equal(ctx.storedConfig().active, true);
   assert.equal(ctx.tunnels[0].closed, false);
 });
+
+test('причина неудачного запуска остаётся видна, пока туннель не включат или не выключат снова', async () => {
+  const ctx = makeManager({ configs: [makeConfig()] });
+  ctx.manager.toggle('c1', true);
+  ctx.tunnels[0].fail(new Error('Не удалось скачать cloudflared'));
+  await flush();
+
+  const expected = { type: 'error', message: 'Ошибка: Не удалось скачать cloudflared' };
+  assert.equal(ctx.storedConfig().active, false);
+  assert.deepEqual(ctx.lastStatus(), expected);
+  assert.deepEqual(ctx.manager.getConfigsWithStatuses()[0].status, expected);
+
+  ctx.manager.toggle('c1', false);
+  assert.deepEqual(ctx.lastStatus(), { type: 'info', message: 'Не активен' });
+});
