@@ -13,6 +13,7 @@ import { parseLocaltunnelServer } from './lib/configValidation.js';
 import { checkLocalPort } from './lib/localPort.js';
 import { DEFAULT_SETTINGS, sanitizeSettings } from './lib/settings.js';
 import { readBackupFile } from './lib/backupFile.js';
+import { isTrustedSenderUrl, safeExternalUrl } from './lib/ipcSecurity.js';
 
 dns.setDefaultResultOrder('ipv4first');
 
@@ -155,9 +156,9 @@ if (!gotTheLock) {
     // Все window.open / target="_blank" отдаём системному браузеру,
     // новые Electron-окна с нашим preload не открываются
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-      const u = String(url || '');
-      if (/^https?:\/\//i.test(u)) {
-        shell.openExternal(u);
+      const safeUrl = safeExternalUrl(url);
+      if (safeUrl) {
+        shell.openExternal(safeUrl);
       }
       return { action: 'deny' };
     });
@@ -239,25 +240,51 @@ if (!gotTheLock) {
 
   // --- IPC ОБРАБОТЧИКИ ---
 
-  ipcMain.handle('get-configs', () => manager.getConfigsWithStatuses());
-  ipcMain.handle('add-config', (event, rawConfig) => manager.addConfig(rawConfig));
-  ipcMain.handle('update-config', (event, rawConfig) => manager.updateConfig(rawConfig));
-  ipcMain.handle('delete-config', (event, id) => manager.deleteConfig(id));
-  ipcMain.handle('toggle-tunnel', (event, id, state) => manager.toggle(id, state));
-  ipcMain.handle('batch-toggle', (event, { ids, state }) => manager.batchToggle(ids, state));
-  ipcMain.handle('batch-delete', (event, ids) => manager.batchDelete(ids));
+  // Все обработчики принимают запросы только от собственной страницы
+  // приложения: так встроенный или чужой контент не сможет управлять
+  // туннелями, даже если окажется в окне
+  function isTrustedSender(event) {
+    const frame = event.senderFrame;
+    if (!frame || !mainWindow || mainWindow.isDestroyed()) return false;
+    // главный фрейм главного окна (сравнение идентификаторов, не строк)
+    const mainFrame = mainWindow.webContents.mainFrame;
+    if (event.sender !== mainWindow.webContents
+      || frame.processId !== mainFrame.processId || frame.routingId !== mainFrame.routingId) {
+      return false;
+    }
+    return isTrustedSenderUrl(frame.url, APP_INDEX_URL, { caseInsensitive: process.platform === 'win32' });
+  }
+
+  function handle(channel, listener) {
+    ipcMain.handle(channel, (event, ...args) => {
+      const senderUrl = event.senderFrame ? event.senderFrame.url : '';
+      if (!isTrustedSender(event)) {
+        logger.warn(`Отклонён IPC-запрос '${channel}' от ${senderUrl || 'неизвестного источника'}`);
+        throw new Error('Запрос отклонён: недоверенный источник');
+      }
+      return listener(event, ...args);
+    });
+  }
+
+  handle('get-configs', () => manager.getConfigsWithStatuses());
+  handle('add-config', (event, rawConfig) => manager.addConfig(rawConfig));
+  handle('update-config', (event, rawConfig) => manager.updateConfig(rawConfig));
+  handle('delete-config', (event, id) => manager.deleteConfig(id));
+  handle('toggle-tunnel', (event, id, state) => manager.toggle(id, state));
+  handle('batch-toggle', (event, payload) => manager.batchToggle(payload && payload.ids, payload && payload.state));
+  handle('batch-delete', (event, ids) => manager.batchDelete(ids));
 
   // Логи
-  ipcMain.handle('get-logs', () => logger.getRecentLogs());
-  ipcMain.handle('clear-logs', () => {
+  handle('get-logs', () => logger.getRecentLogs());
+  handle('clear-logs', () => {
     logger.clearRecentLogs();
     return [];
   });
-  ipcMain.handle('open-log-folder', () => logger.openFolder());
+  handle('open-log-folder', () => logger.openFolder());
 
   // Настройки
-  ipcMain.handle('get-settings', () => getSettings());
-  ipcMain.handle('save-settings', (event, newSettings) => {
+  handle('get-settings', () => getSettings());
+  handle('save-settings', (event, newSettings) => {
     // только известные настройки нужных типов
     const updated = sanitizeSettings(newSettings, getSettings());
     store.set('settings', updated);
@@ -267,7 +294,7 @@ if (!gotTheLock) {
   });
 
   // Экспорт / Импорт конфигураций
-  ipcMain.handle('export-configs', async () => {
+  handle('export-configs', async () => {
     const { filePath, canceled } = await dialog.showSaveDialog(mainWindow, {
       title: 'Экспорт конфигураций туннелей',
       defaultPath: `tunnel-manager-backup-${new Date().toISOString().slice(0, 10)}.json`,
@@ -287,7 +314,7 @@ if (!gotTheLock) {
     }
   });
 
-  ipcMain.handle('import-configs', async () => {
+  handle('import-configs', async () => {
     const { filePaths, canceled } = await dialog.showOpenDialog(mainWindow, {
       title: 'Импорт конфигураций туннелей',
       properties: ['openFile'],
@@ -304,15 +331,15 @@ if (!gotTheLock) {
     }
   });
 
-  ipcMain.handle('open-external', (event, url) => {
-    const u = String(url || '');
-    if (/^https?:\/\//i.test(u)) {
-      shell.openExternal(u);
+  handle('open-external', (event, url) => {
+    const safeUrl = safeExternalUrl(url);
+    if (safeUrl) {
+      shell.openExternal(safeUrl);
     }
   });
 
   // Оффлайн-генерация QR-кода в main-процессе (data URL)
-  ipcMain.handle('generate-qrcode', async (event, text) => {
+  handle('generate-qrcode', async (event, text) => {
     const value = String(text || '');
     if (!value || value.length > 1000) {
       throw new Error('Некорректные данные для QR-кода');
