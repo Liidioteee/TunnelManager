@@ -159,6 +159,42 @@ test('причина неудачного запуска остаётся вид
   assert.deepEqual(ctx.lastStatus(), { type: 'info', message: 'Не активен' });
 });
 
+test('редактирование работающего туннеля перезапускает его с новыми параметрами', async () => {
+  const ctx = makeManager({ configs: [makeConfig()] });
+  ctx.manager.toggle('c1', true);
+  ctx.tunnels[0].succeed();
+  await flush();
+
+  const list = ctx.manager.updateConfig({ id: 'c1', name: 'API v2', port: '4000' });
+
+  assert.equal(ctx.tunnels[0].closed, true);
+  assert.equal(ctx.tunnels.length, 2);
+  assert.equal(ctx.tunnels[1].config.port, '4000');
+  assert.equal(ctx.storedConfig().active, true);
+  assert.equal(list[0].active, true);
+});
+
+test('редактирование выключенного туннеля его не запускает', () => {
+  const ctx = makeManager({ configs: [makeConfig()] });
+  ctx.manager.updateConfig({ id: 'c1', name: 'API v2', port: '4000' });
+  assert.equal(ctx.tunnels.length, 0);
+  assert.equal(ctx.storedConfig().active, false);
+  assert.equal(ctx.storedConfig().port, '4000');
+});
+
+test('редактирование туннеля, который ещё подключается, перезапускает его', async () => {
+  const ctx = makeManager({ configs: [makeConfig()] });
+  ctx.manager.toggle('c1', true); // подключение ещё идёт
+
+  ctx.manager.updateConfig({ id: 'c1', name: 'API', port: '4000' });
+  await flush(); // отменённый первый запуск завершается
+
+  assert.equal(ctx.tunnels.length, 2);
+  assert.equal(ctx.tunnels[1].config.port, '4000');
+  assert.equal(ctx.manager.activeTunnels.c1, ctx.tunnels[1]);
+  assert.equal(ctx.storedConfig().active, true);
+});
+
 test('быстрое выключение и включение во время подключения запускает туннель заново', async () => {
   const ctx = makeManager({ configs: [makeConfig()] });
   ctx.manager.toggle('c1', true);
