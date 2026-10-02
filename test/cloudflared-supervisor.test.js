@@ -79,3 +79,23 @@ test('ошибка запуска процесса сообщается в stder
   assert.equal(code, 127);
   assert.match(stderr, /ENOENT/);
 });
+
+// Регрессия: приложение шлёт SIGTERM, едва увидев первые строки cloudflared.
+// Раньше надзиратель регистрировал обработчики сигналов после запуска процесса,
+// и ранний сигнал завершал его, оставляя cloudflared сиротой
+test('SIGTERM сразу после первых строк процесса останавливает процесс', { skip: process.platform === 'win32' }, async (t) => {
+  const dir = makeTmpDir(t);
+  for (let i = 0; i < 20; i++) {
+    const pidFile = path.join(dir, `pid-${i}`);
+    const script = `echo $$ > "${pidFile}"; echo started >&2; exec sleep 30`;
+    const sup = spawn(process.execPath, [SUPERVISOR, '/bin/sh', '-c', script], { stdio: ['pipe', 'ignore', 'pipe'] });
+    t.after(() => sup.kill('SIGKILL'));
+    await new Promise(resolve => sup.stderr.once('data', resolve));
+    sup.kill('SIGTERM');
+
+    await waitFor(() => fs.existsSync(pidFile) && fs.readFileSync(pidFile, 'utf8').trim());
+    const childPid = Number(fs.readFileSync(pidFile, 'utf8'));
+    t.after(() => { try { process.kill(childPid, 'SIGKILL'); } catch {} });
+    await waitFor(() => !isAlive(childPid), { timeout: 5000 });
+  }
+});
