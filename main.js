@@ -218,6 +218,10 @@ if (!gotTheLock) {
     manager.shutdown();
   });
 
+  app.on('will-quit', () => {
+    logger.close();
+  });
+
   app.whenReady().then(() => {
     logger.info('Приложение запущено и готово к работе');
     const settings = getSettings();

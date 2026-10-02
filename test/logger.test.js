@@ -61,8 +61,11 @@ test('при старте оставляет не больше 4 старых л
   logger.configure({ logDir: dir });
   logger.init();
 
-  const remaining = fs.readdirSync(dir).filter(f => f.startsWith('app_')).sort();
+  // 4 самых новых старых файла + текущий, открытый при инициализации
+  const remaining = fs.readdirSync(dir).filter(f => f.startsWith('app_old_')).sort();
   assert.deepEqual(remaining, ['app_old_3.log', 'app_old_4.log', 'app_old_5.log', 'app_old_6.log']);
+  assert.ok(fs.existsSync(logger.logFile));
+  assert.equal(fs.readdirSync(dir).filter(f => f.startsWith('app_')).length, 5);
   assert.ok(fs.existsSync(path.join(dir, 'other.txt')));
 });
 
@@ -77,4 +80,42 @@ test('openFolder открывает каталог через переданну
 
 test('openFolder без configure ничего не делает', () => {
   assert.doesNotThrow(() => new Logger().openFolder());
+});
+
+test('строки попадают в файл сразу и в порядке записи', (t) => {
+  const dir = makeTmpDir(t);
+  const logger = new Logger();
+  logger.configure({ logDir: dir });
+  for (let i = 0; i < 2000; i++) logger.info(`line ${i}`);
+
+  const lines = fs.readFileSync(logger.logFile, 'utf8').trim().split('\n');
+  assert.equal(lines.length, 2000);
+  lines.forEach((line, i) => assert.ok(line.endsWith(`] [INFO] line ${i}`), line));
+});
+
+test('большой лог делится на файлы ограниченного размера, старые удаляются', (t) => {
+  const dir = makeTmpDir(t);
+  const logger = new Logger();
+  logger.configure({ logDir: dir, maxFileSize: 2000, maxFiles: 3 });
+  for (let i = 0; i < 300; i++) logger.info(`message number ${i}`);
+
+  const files = fs.readdirSync(dir).filter(f => f.startsWith('app_') && f.endsWith('.log'));
+  assert.equal(files.length, 3);
+  for (const f of files) {
+    assert.ok(fs.statSync(path.join(dir, f)).size <= 2000, `${f} больше лимита`);
+  }
+  const current = fs.readFileSync(logger.logFile, 'utf8');
+  assert.match(current, /message number 299\n$/);
+  const all = files.map(f => fs.readFileSync(path.join(dir, f), 'utf8')).join('');
+  assert.ok(!all.includes('message number 0\n'), 'самые старые строки удалены вместе со старыми файлами');
+});
+
+test('ошибка записи в файл не ломает логирование в память', (t) => {
+  const dir = makeTmpDir(t);
+  const logger = new Logger();
+  logger.configure({ logDir: path.join(dir, 'file-not-dir') });
+  fs.writeFileSync(path.join(dir, 'file-not-dir'), 'x'); // каталог создать нельзя
+  t.mock.method(console, 'error', () => {});
+  assert.doesNotThrow(() => logger.info('still works'));
+  assert.equal(logger.getRecentLogs().at(-1).message, 'still works');
 });
