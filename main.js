@@ -317,6 +317,12 @@ if (!gotTheLock) {
       handleTunnelRequest(configId, req);
     });
 
+    // Без обработчика событие 'error' у EventEmitter выбрасывает исключение
+    // и роняет main-процесс. Статус ошибки туннель отправляет через 'status'.
+    tunnel.on('error', (err) => {
+      logger.error(`Ошибка туннеля ${configId}: ${err.message}`);
+    });
+
     tunnel.on('status', async (status) => {
       const state = tunnelStates[configId];
       if (!state) return;
@@ -365,6 +371,20 @@ if (!gotTheLock) {
 
       tunnel.on('close', () => {
         stopTunnel(configId);
+      });
+
+      // После переподключения localtunnel может выдать другой адрес
+      // (если субдомен не закреплён) — обновляем сохранённую ссылку
+      tunnel.on('reconnected', (url) => {
+        if (activeTunnels[configId] !== tunnel || !url) return;
+        const configsNow = store.get('configs') || [];
+        const configNow = configsNow.find(c => c.id === configId);
+        if (configNow && configNow.url !== url) {
+          configNow.url = url;
+          store.set('configs', configsNow);
+          logger.info(`Туннель ${configId} переподключён с новым адресом: ${url}`);
+          broadcastConfigs();
+        }
       });
 
       showNotification('Туннель запущен', `${config.name}: ${tunnel.url}`);
