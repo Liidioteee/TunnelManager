@@ -263,13 +263,16 @@ test('close останавливает процесс cloudflared', { skip: fake
 
   const tunnel = new CFTunnel({ port: 1, binDir: dir });
   const err = await new Promise(resolve => tunnel.open(resolve));
-  assert.equal(err, null);
+  assert.equal(err, null, `open завершился ошибкой: ${err && err.message}`);
   assert.equal(tunnel.url, 'https://close-test.trycloudflare.com');
   const pid = Number(fs.readFileSync(pidFile, 'utf8'));
-  assert.ok(isAlive(pid));
+  assert.ok(isAlive(pid), `cloudflared (pid ${pid}) должен работать до close()`);
 
   tunnel.close();
-  await waitFor(() => !isAlive(pid), { timeout: 5000 });
+  await waitFor(() => !isAlive(pid), { timeout: 5000 }).catch(() => {
+    throw new Error(`cloudflared (pid ${pid}) жив через 5 с после close(); `
+      + `надзиратель: exitCode=${tunnel.child ? tunnel.child.exitCode : 'отсоединён'}`);
+  });
 });
 
 test('_parseTotalRequests читает счётчик запросов из метрик Prometheus', () => {
