@@ -12,6 +12,7 @@
   "type": "module",
   "scripts": {
     "start": "electron .",
+    "lint": "eslint .",
     "test": "node --test \"test/**/*.test.js\"",
     "build": "electron-builder"
   },
@@ -21,8 +22,11 @@
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "electron": "^43.2.0",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "eslint": "^9.39.5",
+    "globals": "^17.13.0"
   },
   "engines": {
     "node": ">=22.0.0"
@@ -41,7 +45,8 @@
     },
     "files": [
       "**/*",
-      "!test/**"
+      "!test/**",
+      "!eslint.config.js"
     ]
   }
 }
