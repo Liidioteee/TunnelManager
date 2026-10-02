@@ -188,6 +188,31 @@ test('ошибка валидации показывается понятным 
   assert.equal(await page.evaluate(() => document.querySelectorAll('.tunnel-card').length), 0);
 });
 
+test('настройки: сохраняются из окна, посторонние ключи и неверные типы отбрасываются', async (t) => {
+  const app = await launchApp(t);
+  const page = app.page;
+
+  // через интерфейс
+  await page.evaluate(() => document.getElementById('settings-btn').click());
+  await page.waitFor(() => !document.getElementById('settings-modal').classList.contains('hidden'));
+  await page.evaluate(() => {
+    document.getElementById('setting-notifications').checked = false;
+    document.getElementById('setting-defaultprovider').value = 'cf';
+    document.getElementById('settings-save-btn').click();
+  });
+  await page.waitFor(() => document.getElementById('settings-modal').classList.contains('hidden'));
+  const saved = await page.evaluate(() => window.api.getSettings());
+  assert.equal(saved.notifications, false);
+  assert.equal(saved.defaultProvider, 'cf');
+
+  // прямой вызов IPC с мусором (как из скомпрометированного окна)
+  const result = await page.evaluate(() => window.api.saveSettings({
+    closeToTray: 'yes', defaultProvider: 'ngrok', evil: '<script>', autoLaunch: 1
+  }));
+  assert.deepEqual(result, { ...saved });
+  assert.deepEqual(await page.evaluate(() => window.api.getSettings()), saved);
+});
+
 async function waitUntil(predicate, timeout = 10000) {
   const deadline = Date.now() + timeout;
   while (!predicate()) {

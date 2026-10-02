@@ -11,6 +11,7 @@ import logger from './lib/Logger.js';
 import TunnelManager from './lib/TunnelManager.js';
 import { parseLocaltunnelServer } from './lib/configValidation.js';
 import { checkLocalPort } from './lib/localPort.js';
+import { DEFAULT_SETTINGS, sanitizeSettings } from './lib/settings.js';
 
 dns.setDefaultResultOrder('ipv4first');
 
@@ -38,20 +39,12 @@ if (!gotTheLock) {
     store.set('configs', []);
   }
 
-  const defaultSettings = {
-    autoLaunch: false,
-    startMinimized: false,
-    closeToTray: true,
-    defaultProvider: 'lt',
-    notifications: true
-  };
-
   if (!store.has('settings')) {
-    store.set('settings', defaultSettings);
+    store.set('settings', { ...DEFAULT_SETTINGS });
   }
 
   function getSettings() {
-    return { ...defaultSettings, ...(store.get('settings') || {}) };
+    return sanitizeSettings(undefined, store.get('settings'));
   }
 
   function applyAutoLaunch(settings) {
@@ -264,7 +257,8 @@ if (!gotTheLock) {
   // Настройки
   ipcMain.handle('get-settings', () => getSettings());
   ipcMain.handle('save-settings', (event, newSettings) => {
-    const updated = { ...getSettings(), ...newSettings };
+    // только известные настройки нужных типов
+    const updated = sanitizeSettings(newSettings, getSettings());
     store.set('settings', updated);
     applyAutoLaunch(updated);
     logger.info('Настройки приложения обновлены');
