@@ -158,3 +158,43 @@ test('причина неудачного запуска остаётся вид
   ctx.manager.toggle('c1', false);
   assert.deepEqual(ctx.lastStatus(), { type: 'info', message: 'Не активен' });
 });
+
+test('быстрое выключение и включение во время подключения запускает туннель заново', async () => {
+  const ctx = makeManager({ configs: [makeConfig()] });
+  ctx.manager.toggle('c1', true);
+  ctx.manager.toggle('c1', false);
+  ctx.manager.toggle('c1', true);
+  await flush();
+
+  assert.equal(ctx.tunnels.length, 2);
+  assert.equal(ctx.storedConfig().active, true);
+  ctx.tunnels[1].succeed('https://second.loca.lt');
+  await flush();
+  assert.equal(ctx.storedConfig().url, 'https://second.loca.lt');
+});
+
+test('туннель можно запустить снова, даже если отменённый запуск так и не завершился', async () => {
+  const ctx = makeManager({ configs: [makeConfig()] });
+  ctx.manager.toggle('c1', true);
+  // как CFTunnel, закрытый во время скачивания: колбэк open не вызывается никогда
+  ctx.tunnels[0].close = function () { this.closed = true; this.emit('close'); };
+  ctx.manager.toggle('c1', false);
+
+  ctx.manager.toggle('c1', true);
+  assert.equal(ctx.tunnels.length, 2);
+});
+
+test('успешное открытие уже остановленного туннеля игнорируется', async () => {
+  const ctx = makeManager({ configs: [makeConfig()] });
+  ctx.manager.toggle('c1', true);
+  const first = ctx.tunnels[0];
+  first.close = function () { this.closed = true; }; // не отменяет open сам
+  ctx.manager.toggle('c1', false);
+
+  first.succeed('https://late.loca.lt');
+  await flush();
+
+  assert.equal(ctx.storedConfig().active, false);
+  assert.equal(ctx.storedConfig().url, '');
+  assert.deepEqual(ctx.notifications, []);
+});
