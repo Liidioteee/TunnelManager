@@ -173,6 +173,14 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// --- REQUEST STATS ---
+// Для LocalTunnel известен последний запрос; Cloudflare сообщает только число
+function requestStatsTitle(stats) {
+  return stats.lastPath
+    ? `Последний запрос: ${stats.lastMethod} ${stats.lastPath}`
+    : `Запросов через туннель: ${stats.count}`;
+}
+
 // --- TIME FORMATTING ---
 function formatUptime(secs) {
   const h = Math.floor(secs / 3600).toString().padStart(2, '0');
@@ -510,7 +518,7 @@ function renderTunnels(configs) {
 
     const statsVal = latestRequestStats[config.id] || (config.stats && config.stats.count > 0 ? config.stats : null);
     const statsBadgeHtml = (statsVal && statsVal.count > 0)
-      ? `<span id="stats-${config.id}" class="stats-badge" title="Последний: ${escapeHtml(statsVal.lastMethod)} ${escapeHtml(statsVal.lastPath)}">${statsVal.count} req</span>`
+      ? `<span id="stats-${config.id}" class="stats-badge" title="${escapeHtml(requestStatsTitle(statsVal))}">${statsVal.count} req</span>`
       : `<span id="stats-${config.id}" class="stats-badge hidden"></span>`;
 
     card.innerHTML = `
@@ -974,7 +982,7 @@ window.api.onRequestStats((data) => {
   const el = document.getElementById(`stats-${data.id}`);
   if (el && data.stats && data.stats.count > 0) {
     el.innerText = `${data.stats.count} req`;
-    el.title = `Последний запрос: ${data.stats.lastMethod} ${data.stats.lastPath}`;
+    el.title = requestStatsTitle(data.stats);
     el.classList.remove('hidden');
   }
 });

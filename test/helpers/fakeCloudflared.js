@@ -19,3 +19,31 @@ export function installFakeCloudflared(dir, script, meta = {}) {
   }));
   return binPath;
 }
+
+// Фейковый cloudflared с эндпоинтом метрик: Node-скрипт поднимает HTTP-сервер
+// на свободном порту и отдаёт cloudflared_tunnel_total_requests из файла
+// requests (тест меняет число в файле). Печатает то же, что настоящий cloudflared.
+export function installFakeCloudflaredWithMetrics(dir, { url = 'https://metrics-test.trycloudflare.com' } = {}) {
+  const requestsFile = path.join(dir, 'requests');
+  fs.writeFileSync(requestsFile, '0');
+  const script = path.join(dir, 'fake-cloudflared.cjs');
+  fs.writeFileSync(script, `
+    const http = require('http');
+    const fs = require('fs');
+    const server = http.createServer((req, res) => {
+      const total = fs.readFileSync(${JSON.stringify(requestsFile)}, 'utf8').trim();
+      res.end('# HELP cloudflared_tunnel_total_requests Amount of requests proxied through all the tunnels\\n'
+        + '# TYPE cloudflared_tunnel_total_requests counter\\n'
+        + 'cloudflared_tunnel_total_requests ' + total + '\\n');
+    });
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      process.stderr.write('INF Starting metrics server on 127.0.0.1:' + port + '/metrics\\n');
+      process.stderr.write('INF |  ${url}  |\\n');
+      process.stderr.write('INF Registered tunnel connection connIndex=0\\n');
+    });
+  `);
+  // путь к node передаётся через окружение (в приложении это Electron)
+  installFakeCloudflared(dir, `exec "$FAKE_CLOUDFLARED_NODE" "${script}"`);
+  return { requestsFile };
+}

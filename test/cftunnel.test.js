@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import CFTunnel from '../lib/CFTunnel.js';
 import { makeTmpDir, waitFor } from './helpers/tmp.js';
-import { installFakeCloudflared, fakeCloudflaredSkip } from './helpers/fakeCloudflared.js';
+import { installFakeCloudflared, installFakeCloudflaredWithMetrics, fakeCloudflaredSkip } from './helpers/fakeCloudflared.js';
 
 test('без binDir конструктор сообщает об ошибке', () => {
   assert.throws(() => new CFTunnel({ port: 3000 }), /binDir/);
@@ -270,4 +270,57 @@ test('close останавливает процесс cloudflared', { skip: fake
 
   tunnel.close();
   await waitFor(() => !isAlive(pid), { timeout: 5000 });
+});
+
+test('_parseTotalRequests читает счётчик запросов из метрик Prometheus', () => {
+  const tunnel = new CFTunnel({ port: 1, binDir: '/tmp' });
+  const text = [
+    '# HELP cloudflared_tunnel_total_requests Amount of requests proxied through all the tunnels',
+    '# TYPE cloudflared_tunnel_total_requests counter',
+    'cloudflared_tunnel_total_requests 42',
+    'cloudflared_tunnel_request_errors 3'
+  ].join('\n');
+  assert.equal(tunnel._parseTotalRequests(text), 42);
+  assert.equal(tunnel._parseTotalRequests('cloudflared_tunnel_total_requests 1.5e+06'), 1500000);
+  assert.equal(tunnel._parseTotalRequests('something_else 1'), null);
+});
+
+test('аргументы запуска: метрики на свободном порту localhost', () => {
+  const args = new CFTunnel({ port: 3000, binDir: '/tmp' })._buildArgs();
+  assert.deepEqual(args.slice(args.indexOf('--metrics'), args.indexOf('--metrics') + 2), ['--metrics', '127.0.0.1:0']);
+});
+
+test('строки лога с GET/POST не считаются запросами', { skip: fakeCloudflaredSkip }, async (t) => {
+  const dir = makeTmpDir(t);
+  installFakeCloudflared(dir, [
+    'echo "INF |  https://words.trycloudflare.com  |" >&2',
+    'echo "INF Registered tunnel connection connIndex=0" >&2',
+    'echo "INF budget output for GET /api and POST /x" >&2',
+    'exec sleep 30'
+  ].join('\n'));
+  const tunnel = new CFTunnel({ port: 1, binDir: dir });
+  t.after(() => tunnel.close());
+  const requests = [];
+  tunnel.on('request', (r) => requests.push(r));
+  tunnel.on('requests', (n) => requests.push(n));
+  await new Promise(resolve => tunnel.open(resolve));
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.deepEqual(requests, []);
+});
+
+test('число запросов берётся из метрик cloudflared и передаётся приращениями', { skip: fakeCloudflaredSkip }, async (t) => {
+  const dir = makeTmpDir(t);
+  const { requestsFile } = installFakeCloudflaredWithMetrics(dir);
+  process.env.FAKE_CLOUDFLARED_NODE = process.execPath;
+  const tunnel = new CFTunnel({ port: 1, binDir: dir, metricsInterval: 50 });
+  t.after(() => tunnel.close());
+  const increments = [];
+  tunnel.on('requests', (n) => increments.push(n));
+
+  assert.equal(await new Promise(resolve => tunnel.open(resolve)), null);
+  fs.writeFileSync(requestsFile, '3');
+  await waitFor(() => increments.reduce((a, b) => a + b, 0) === 3);
+  fs.writeFileSync(requestsFile, '5');
+  await waitFor(() => increments.reduce((a, b) => a + b, 0) === 5);
+  assert.ok(increments.every(n => n > 0));
 });

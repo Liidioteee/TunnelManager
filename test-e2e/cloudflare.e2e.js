@@ -6,7 +6,7 @@ import path from 'node:path';
 import { launchApp, makeUserDataDir } from './helpers/app.js';
 import { createTunnel, toggleTunnel, waitForCard, installFakeCloudflared } from './helpers/ui.js';
 import { listen, close } from '../test/helpers/fakeLocaltunnel.js';
-import { fakeCloudflaredSkip } from '../test/helpers/fakeCloudflared.js';
+import { fakeCloudflaredSkip, installFakeCloudflaredWithMetrics } from '../test/helpers/fakeCloudflared.js';
 
 const skip = fakeCloudflaredSkip;
 
@@ -122,3 +122,20 @@ function isAlive(pid) {
     return false;
   }
 }
+
+test('Cloudflare: число запросов берётся из метрик cloudflared', { skip }, async (t) => {
+  const local = http.createServer((req, res) => res.end('ok'));
+  const port = await listen(local);
+  t.after(() => close(local));
+
+  const userDataDir = makeUserDataDir(t);
+  const { requestsFile } = installFakeCloudflaredWithMetrics(userDataDir);
+  const app = await launchApp(t, { userDataDir, env: { FAKE_CLOUDFLARED_NODE: process.execPath } });
+  const id = await createTunnel(app.page, { name: 'CF metrics', port, provider: 'cf' });
+  await toggleTunnel(app.page, id);
+  await waitForCard(app.page, id, c => c.statusText === 'Активен');
+
+  fs.writeFileSync(requestsFile, '3');
+  const info = await waitForCard(app.page, id, c => c.requests === '3 req', { message: 'счётчик из метрик' });
+  assert.equal(info.lastRequest, 'Запросов через туннель: 3');
+});

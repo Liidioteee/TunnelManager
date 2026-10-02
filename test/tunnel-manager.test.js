@@ -199,3 +199,24 @@ test('importConfigs без корректных записей ничего не
   assert.equal(manager.importConfigs([{ port: -1 }]).success, false);
   assert.deepEqual(store.get('configs'), []);
 });
+
+test('число запросов от Cloudflare накапливается и не обнуляется при перезапуске туннеля', async () => {
+  const { manager, tunnels, events } = makeManager({ configs: [makeConfig({ provider: 'cf' })] });
+  manager.toggle('c1', true);
+  tunnels[0].succeed();
+  await flush();
+
+  tunnels[0].emit('requests', 3);
+  manager.stop('c1');
+  manager.toggle('c1', true);
+  tunnels[1].succeed();
+  await flush();
+  tunnels[1].emit('requests', 2);
+  tunnels[1].emit('requests', 0);   // некорректные значения игнорируются
+  tunnels[1].emit('requests', -1);
+
+  const { stats } = events['request-stats'].at(-1);
+  assert.equal(stats.count, 5);
+  assert.equal(stats.lastPath, '');
+  assert.equal(events['request-stats'].length, 2);
+});
