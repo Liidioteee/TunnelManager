@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import CFTunnel from '../lib/CFTunnel.js';
@@ -118,4 +119,48 @@ test('если cloudflared не подключился за отведённое
   assert.ok(statuses.some(s => s.type === 'error' && /не подключился/.test(s.message)));
   const pid = Number(fs.readFileSync(pidFile, 'utf8'));
   await waitFor(() => !isAlive(pid));
+});
+
+// Ответы «GitHub» для установки cloudflared: метаданные релиза и сам файл
+function mockGithub(t, { assetUrl, body = Buffer.from('fake cloudflared binary'), digest } = {}) {
+  const tunnel = new CFTunnel({ port: 1, binDir: makeTmpDir(t) });
+  const assetName = 'cloudflared-test-asset';
+  const sha = digest || crypto.createHash('sha256').update(body).digest('hex');
+  const url = assetUrl || `https://github.com/cloudflare/cloudflared/releases/download/2026.9.3/${assetName}`;
+  const requested = [];
+  t.mock.method(globalThis, 'fetch', async (input) => {
+    const href = String(input);
+    requested.push(href);
+    if (href.startsWith('https://api.github.com/')) {
+      return new Response(JSON.stringify({
+        tag_name: '2026.9.3',
+        assets: [{ name: assetName, digest: `sha256:${sha}`, browser_download_url: url }]
+      }), { status: 200 });
+    }
+    return new Response(body, { status: 200 });
+  });
+  return { tunnel, assetName, requested, url };
+}
+
+test('бинарник скачивается по ссылке из того же ответа API, что и контрольная сумма', async (t) => {
+  const { tunnel, assetName, requested, url } = mockGithub(t);
+  await tunnel._installVerifiedBinary(assetName);
+
+  assert.equal(requested.length, 2);
+  assert.equal(requested[1], url, 'файл берётся из конкретного релиза, а не latest/download');
+  assert.equal(fs.readFileSync(tunnel.binPath, 'utf8'), 'fake cloudflared binary');
+});
+
+test('ссылка на бинарник вне github.com отклоняется', async (t) => {
+  const { tunnel, assetName, requested } = mockGithub(t, { assetUrl: 'https://evil.example.com/cloudflared' });
+  await assert.rejects(tunnel._installVerifiedBinary(assetName), /недопустимый адрес/);
+  assert.equal(requested.length, 1, 'файл не скачивается');
+  assert.ok(!fs.existsSync(tunnel.binPath));
+});
+
+test('бинарник с неверной контрольной суммой не устанавливается', async (t) => {
+  const { tunnel, assetName } = mockGithub(t, { digest: 'a'.repeat(64) });
+  await assert.rejects(tunnel._installVerifiedBinary(assetName), /не совпадает/);
+  assert.ok(!fs.existsSync(tunnel.binPath));
+  assert.ok(!fs.existsSync(`${tunnel.binPath}.download`));
 });
