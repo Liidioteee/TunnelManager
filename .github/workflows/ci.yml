@@ -31,8 +31,12 @@ jobs:
       - run: npm audit --audit-level=high
 
   e2e:
-    name: End-to-end (ubuntu-latest)
-    runs-on: ubuntu-latest
+    name: End-to-end (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -41,8 +45,14 @@ jobs:
           cache: npm
       # Здесь нужен настоящий Electron, поэтому бинарник скачивается
       - run: npm ci
+      # Серверы туннелей в тестах фейковые, сеть не нужна.
+      # На Linux приложение запускается в виртуальном дисплее Xvfb
       - name: Install Xvfb
+        if: runner.os == 'Linux'
         run: command -v xvfb-run || (sudo apt-get update && sudo apt-get install -y xvfb)
-      # Приложение запускается в виртуальном дисплее; сеть не нужна —
-      # серверы туннелей в тестах фейковые
-      - run: xvfb-run -a npm run test:e2e
+      - name: End-to-end tests (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:e2e
+      - name: End-to-end tests (Windows)
+        if: runner.os == 'Windows'
+        run: npm run test:e2e

@@ -90,7 +90,11 @@ test('включённый туннель восстанавливается п�
   await toggleTunnel(first.page, id);
   await waitForCard(first.page, id, c => c.statusText === 'Активен');
   const exit = await first.quit();
-  assert.equal(exit.code, 0, `код выхода приложения: ${JSON.stringify(exit)}`);
+  // На Windows SIGTERM завершает процесс жёстко (без before-quit), код выхода
+  // не 0; туннель всё равно должен восстановиться — флаг active не сбрасывается
+  if (process.platform !== 'win32') {
+    assert.equal(exit.code, 0, `код выхода приложения: ${JSON.stringify(exit)}`);
+  }
 
   const second = await launchApp(t, { userDataDir: first.userDataDir, env });
   const info = await waitForCard(second.page, id, c => c.statusText === 'Активен', { message: 'после перезапуска' });
