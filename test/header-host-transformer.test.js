@@ -81,3 +81,8 @@ test('некорректный Content-Length — дальше данные ид
 test('незавершённый заголовок отдаётся при закрытии потока', async () => {
   assert.equal(await transform('GET / HTTP/1.1\r\nHost: x.lo'), 'GET / HTTP/1.1\r\nHost: x.lo');
 });
+
+test('IPv6-адрес в заголовке Host записывается в квадратных скобках', async () => {
+  assert.equal(await transform(req('/'), { host: '::1' }), req('/').replace('x.loca.lt', '[::1]'));
+  assert.equal(await transform(req('/'), { host: 'fe80::1' }), req('/').replace('x.loca.lt', '[fe80::1]'));
+});
