@@ -10,6 +10,7 @@ import Tunnel from './lib/Tunnel.js';
 import CFTunnel from './lib/CFTunnel.js';
 import logger from './lib/Logger.js';
 import TunnelManager from './lib/TunnelManager.js';
+import { parseLocaltunnelServer } from './lib/configValidation.js';
 
 dns.setDefaultResultOrder('ipv4first');
 
@@ -113,6 +114,16 @@ if (!gotTheLock) {
     });
   }
 
+  // Необязательный собственный сервер localtunnel вместо https://loca.lt
+  // (также используется сквозными тестами с фейковым сервером)
+  const ltServerEnv = process.env.TUNNEL_MANAGER_LT_SERVER;
+  const ltServer = parseLocaltunnelServer(ltServerEnv);
+  if (ltServerEnv && !ltServer) {
+    logger.warn('TUNNEL_MANAGER_LT_SERVER проигнорирована: ожидается адрес вида https://host[:port]');
+  } else if (ltServer) {
+    logger.info(`Используется сервер localtunnel: ${ltServer}`);
+  }
+
   function createTunnel(config) {
     const localHost = config.localHost || 'localhost';
     const localProtocol = config.localProtocol || 'http';
@@ -127,6 +138,7 @@ if (!gotTheLock) {
       });
     }
     return new Tunnel({
+      host: ltServer || undefined,
       port: parseInt(config.port, 10),
       subdomain: config.subdomain || undefined,
       local_host: localHost,

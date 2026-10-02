@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sanitizeConfigInput } from '../lib/configValidation.js';
+import { sanitizeConfigInput, parseLocaltunnelServer } from '../lib/configValidation.js';
 
 const base = { name: 'API', port: '3000' };
 
@@ -91,4 +91,16 @@ test('лишние поля из импорта не попадают в рез�
 test('skipTlsVerify отключается только явным false', () => {
   assert.equal(sanitizeConfigInput({ ...base, skipTlsVerify: 'false' }).skipTlsVerify, true);
   assert.equal(sanitizeConfigInput({ ...base, skipTlsVerify: false }).skipTlsVerify, false);
+});
+
+test('parseLocaltunnelServer принимает http(s)-адрес сервера и возвращает origin', () => {
+  assert.equal(parseLocaltunnelServer('https://lt.example.com'), 'https://lt.example.com');
+  assert.equal(parseLocaltunnelServer(' http://127.0.0.1:3000/ '), 'http://127.0.0.1:3000');
+});
+
+test('parseLocaltunnelServer отклоняет пустые и некорректные значения', () => {
+  for (const value of [undefined, '', '   ', 'loca.lt', 'ftp://lt.example.com', 'javascript:alert(1)',
+    'https://user:pass@lt.example.com', 'https://lt.example.com/path', 'https://lt.example.com/?x=1']) {
+    assert.equal(parseLocaltunnelServer(value), null, String(value));
+  }
 });
