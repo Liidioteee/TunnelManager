@@ -132,7 +132,7 @@
           <select id="filter-status" class="filter-select">
             <option value="all">Все</option>
             <option value="active">Активен</option>
-            <option value="warning">Порт закрыт</option>
+            <option value="problems">С проблемами</option>
             <option value="inactive">Не активен</option>
           </select>
         </div>
@@ -206,7 +206,7 @@
           <span class="badge">Live Logs</span>
         </div>
         <div class="modal-header-actions">
-          <button id="logs-open-folder-btn" class="btn-secondary btn-sm" title="Открыть папку с файлами логов">В проводнике</button>
+          <button id="logs-open-folder-btn" class="btn-secondary btn-sm" title="Открыть папку с файлами логов">Открыть папку</button>
           <button id="logs-clear-btn" class="btn-secondary btn-sm" title="Очистить экранные логи">Очистить</button>
           <button class="btn-action modal-close" data-close-modal="logs-modal" aria-label="Закрыть">✕</button>
         </div>
@@ -240,7 +240,7 @@
       <div class="modal-body settings-body">
         <div class="settings-group">
           <label class="settings-label-row">
-            <span class="settings-title">Автозапуск при старте Windows</span>
+            <span class="settings-title">Автозапуск при входе в систему</span>
             <input type="checkbox" id="setting-autolaunch">
           </label>
           <p class="settings-desc">Автоматически запускать Tunnel Manager при входе в систему.</p>

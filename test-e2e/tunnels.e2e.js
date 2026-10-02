@@ -229,7 +229,7 @@ test('фильтр по статусу обновляется сам, когда
 
   await app.page.evaluate(() => {
     const select = document.getElementById('filter-status');
-    select.value = 'warning';
+    select.value = 'problems';
     select.dispatchEvent(new Event('change', { bubbles: true }));
   });
   assert.equal(await cardInfo(app.page, id), null, 'активный туннель не подходит под фильтр');
@@ -325,6 +325,25 @@ test('копирование журнала сообщает о журнале, 
   const toast = await app.page.waitFor(() => document.querySelector('.toast')?.textContent);
   assert.match(toast, /Журнал скопирован|Не удалось скопировать/);
   assert.doesNotMatch(toast, /Ссылка/);
+});
+
+test('фильтр «С проблемами» показывает и предупреждения, и ошибки', async (t) => {
+  const api = await startFakeApi(t, [{ status: 403, json: { message: 'Forbidden' } }]);
+  const app = await launchApp(t, { env: { TUNNEL_MANAGER_LT_SERVER: api.host } });
+  const failed = await createTunnel(app.page, { name: 'Failed', port: 3001 });
+  const idle = await createTunnel(app.page, { name: 'Idle', port: 3002 });
+  await toggleTunnel(app.page, failed);
+  await waitForCard(app.page, failed, c => c.statusType === 'error');
+
+  const label = await app.page.evaluate(() => {
+    const select = document.getElementById('filter-status');
+    select.value = 'problems';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    return select.options[select.selectedIndex].textContent;
+  });
+  assert.equal(label, 'С проблемами');
+  assert.equal((await cardInfo(app.page, failed)).statusType, 'error');
+  assert.equal(await cardInfo(app.page, idle), null);
 });
 
 async function waitUntil(predicate, timeout = 10000) {

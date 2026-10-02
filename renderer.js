@@ -432,7 +432,8 @@ function getFilteredAndSortedConfigs() {
       if (statusFilter === 'active' && (!config.active || status.type !== 'success')) {
         return false;
       }
-      if (statusFilter === 'warning' && status.type !== 'warning') {
+      // «С проблемами»: предупреждения (порт закрыт, повтор подключения) и ошибки
+      if (statusFilter === 'problems' && status.type !== 'warning' && status.type !== 'error') {
         return false;
       }
       if (statusFilter === 'inactive' && config.active) {
