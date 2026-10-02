@@ -277,7 +277,7 @@ if (!gotTheLock) {
     if (canceled || !filePath) return { success: false };
 
     try {
-      const data = manager.exportData('1.1.0');
+      const data = manager.exportData(app.getVersion());
       fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
       logger.info(`Конфигурации экспортированы в ${filePath}`);
       return { success: true, count: data.configs.length };
