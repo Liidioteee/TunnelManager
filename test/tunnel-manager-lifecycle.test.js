@@ -81,3 +81,54 @@ test('недоступный локальный порт распознаётс�
   tunnel.emit('status', { type: 'warning', message: 'Локальный порт — просто текст, без кода' });
   assert.equal(ctx.manager.tunnelStates.c1.connectionState, 'starting');
 });
+
+test('устаревший результат проверки порта не перезаписывает более свежий статус', async () => {
+  const ctx = makeManager({ configs: [makeConfig()] });
+  const tunnel = await startRunning(ctx);
+
+  // проверка порта «зависает», пока тест её не завершит
+  let finishCheck;
+  ctx.deps.checkLocalPort = () => new Promise(resolve => { finishCheck = resolve; });
+
+  tunnel.emit('status', { type: 'success', message: 'Активен' });        // запускает проверку порта
+  tunnel.emit('status', { type: 'warning', code: 'LOCAL_PORT_CLOSED', message: 'x' }); // свежее событие
+  assert.equal(ctx.lastStatus().type, 'warning');
+
+  finishCheck(true); // запоздалый ответ «порт открыт» от первой проверки
+  await flush();
+
+  assert.equal(ctx.lastStatus().type, 'warning');
+  assert.equal(ctx.manager.tunnelStates.c1.localPortState, 'closed');
+});
+
+test('проверка порта, завершившаяся после остановки, не меняет статус', async () => {
+  const ctx = makeManager({ configs: [makeConfig()] });
+  const tunnel = await startRunning(ctx);
+  let finishCheck;
+  ctx.deps.checkLocalPort = () => new Promise(resolve => { finishCheck = resolve; });
+
+  tunnel.emit('status', { type: 'success', message: 'Активен' });
+  ctx.manager.stop('c1');
+  const statusesAfterStop = ctx.events.status.length;
+
+  finishCheck(false);
+  await flush();
+
+  assert.equal(ctx.events.status.length, statusesAfterStop);
+  assert.equal(ctx.manager.tunnelStates.c1.connectionState, 'stopped');
+});
+
+test('периодическая проверка порта не затирает статус, пришедший во время проверки', async () => {
+  const ctx = makeManager({ configs: [makeConfig()] });
+  const tunnel = await startRunning(ctx);
+  let finishCheck;
+  ctx.deps.checkLocalPort = () => new Promise(resolve => { finishCheck = resolve; });
+
+  const checking = ctx.manager.checkPorts();
+  tunnel.emit('status', { type: 'warning', code: 'LOCAL_PORT_CLOSED', message: 'x' });
+  finishCheck(true);
+  await checking;
+
+  assert.equal(ctx.manager.tunnelStates.c1.localPortState, 'closed');
+  assert.equal(ctx.lastStatus().type, 'warning');
+});
