@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import CFTunnel from '../lib/CFTunnel.js';
-import { makeTmpDir } from './helpers/tmp.js';
+import { makeTmpDir, waitFor } from './helpers/tmp.js';
 import { installFakeCloudflared, fakeCloudflaredSkip } from './helpers/fakeCloudflared.js';
 
 test('без binDir конструктор сообщает об ошибке', () => {
@@ -91,4 +91,31 @@ test('проверка бинарника кэшируется отдельно 
   const install = t.mock.method(other, '_installVerifiedBinary', async () => {});
   await other._ensureBinary();
   assert.equal(install.mock.callCount(), 1, 'бинарник в другом каталоге проверяется и переустанавливается');
+});
+
+function isAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+test('если cloudflared не подключился за отведённое время — ошибка и остановка процесса', { skip: fakeCloudflaredSkip }, async (t) => {
+  const dir = makeTmpDir(t);
+  const pidFile = path.join(dir, 'pid');
+  installFakeCloudflared(dir, `echo $$ > "${pidFile}"\nexec sleep 30`);
+
+  const tunnel = new CFTunnel({ port: 1, binDir: dir, startTimeout: 300 });
+  t.after(() => tunnel.close());
+  const statuses = [];
+  tunnel.on('status', (s) => statuses.push(s));
+
+  const err = await new Promise(resolve => tunnel.open(resolve));
+
+  assert.match(String(err && err.message), /не подключился/);
+  assert.ok(statuses.some(s => s.type === 'error' && /не подключился/.test(s.message)));
+  const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+  await waitFor(() => !isAlive(pid));
 });
