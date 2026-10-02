@@ -87,3 +87,46 @@ test('Host подменяется во всех запросах keep-alive со
   await waitFor(() => seenHosts.length === 3);
   assert.deepEqual(seenHosts, ['127.0.0.2', '127.0.0.2', '127.0.0.2']);
 });
+
+test('после сброса локального соединения данные идут в новое соединение без зависания', async (t) => {
+  let connections = 0;
+  const received = [];
+  const local = await startTcp(t, (socket) => {
+    connections++;
+    if (connections === 1) {
+      // первое соединение локальный сервер сбрасывает сразу при получении данных
+      socket.once('data', () => socket.resetAndDestroy());
+    } else {
+      socket.on('data', (d) => received.push(d));
+    }
+  });
+  local.server.close(); // startTcp слушает 127.0.0.1 — перезапускаем на всех интерфейсах
+  await new Promise(resolve => local.server.listen(local.port, '0.0.0.0', resolve));
+
+  const remote = await startTcp(t);
+  const cluster = new TunnelCluster({
+    remote_ip: '127.0.0.1',
+    remote_port: remote.port,
+    local_host: '127.0.0.2',
+    local_port: local.port
+  });
+  t.after(() => cluster.close());
+  cluster.on('local-error', () => {});
+
+  const accepted = once(remote.server, 'connection');
+  cluster.open();
+  const [serverSide] = await accepted;
+  await once(cluster, 'local-connect');
+
+  serverSide.write('GET /first HTTP/1.1\r\nHost: app.loca.lt\r\n\r\n');
+  await once(cluster, 'local-error');
+  await once(cluster, 'local-connect'); // повторное подключение через 1 с
+
+  const body = 'y'.repeat(256 * 1024);
+  const request = `POST /big HTTP/1.1\r\nHost: app.loca.lt\r\nContent-Length: ${body.length}\r\n\r\n${body}`;
+  serverSide.write(request);
+
+  const expected = request.replace('app.loca.lt', '127.0.0.2');
+  await waitFor(() => Buffer.concat(received).length >= expected.length, { timeout: 5000 });
+  assert.equal(Buffer.concat(received).toString(), expected);
+});
