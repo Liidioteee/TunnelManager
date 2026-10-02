@@ -68,3 +68,16 @@ test('после shutdown туннели больше не запускаютс�
   ctx.manager.restoreActive();
   assert.equal(ctx.tunnels.length, 0);
 });
+
+test('недоступный локальный порт распознаётся по коду статуса, а не по тексту', async () => {
+  const ctx = makeManager({ configs: [makeConfig()] });
+  const tunnel = await startRunning(ctx);
+
+  tunnel.emit('status', { type: 'warning', code: 'LOCAL_PORT_CLOSED', message: 'Local port unavailable' });
+  assert.deepEqual(ctx.lastStatus(), { type: 'warning', message: 'Локальный порт 3000 недоступен' });
+
+  tunnel.emit('status', { type: 'success', message: 'Активен' });
+  await flush();
+  tunnel.emit('status', { type: 'warning', message: 'Локальный порт — просто текст, без кода' });
+  assert.equal(ctx.manager.tunnelStates.c1.connectionState, 'starting');
+});
