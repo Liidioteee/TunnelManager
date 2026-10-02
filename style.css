@@ -50,7 +50,7 @@
   --transition-spring: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-body.dark-theme {
+html.dark-theme {
   color-scheme: dark;
 
   --bg-app: #0a0c16;
@@ -557,7 +557,7 @@ a:focus-visible,
   transition: var(--transition);
 }
 
-body.dark-theme .search-input-wrapper input {
+html.dark-theme .search-input-wrapper input {
   background-color: var(--bg-input);
 }
 
@@ -764,7 +764,7 @@ body.dark-theme .search-input-wrapper input {
   color: #4f46e5;
 }
 
-body.dark-theme .provider-badge.lt {
+html.dark-theme .provider-badge.lt {
   background-color: rgba(108, 123, 250, 0.16);
   color: #a5b0ff;
 }
@@ -774,7 +774,7 @@ body.dark-theme .provider-badge.lt {
   color: #d9670c;
 }
 
-body.dark-theme .provider-badge.cf {
+html.dark-theme .provider-badge.cf {
   background-color: rgba(249, 115, 22, 0.16);
   color: #ffab6b;
 }

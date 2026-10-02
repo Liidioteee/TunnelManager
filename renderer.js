@@ -222,23 +222,30 @@ function formatUptime(secs) {
 }
 
 // --- THEME SWITCHER ---
-const savedTheme = localStorage.getItem('theme') || 'light';
-if (savedTheme === 'dark') {
-  document.body.classList.add('dark-theme');
-  document.getElementById('theme-icon-sun').classList.remove('hidden');
-  document.getElementById('theme-icon-moon').classList.add('hidden');
+// Начальная тема уже выставлена theme.js в <head>; здесь — кнопка и
+// следование за системной темой, пока пользователь не выбрал свою
+function applyTheme(isDark) {
+  document.documentElement.classList.toggle('dark-theme', isDark);
+  document.getElementById('theme-icon-sun').classList.toggle('hidden', !isDark);
+  document.getElementById('theme-icon-moon').classList.toggle('hidden', isDark);
+}
+
+applyTheme(window.__theme.isDark());
+
+if (window.matchMedia) {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (!window.__theme.saved()) applyTheme(window.__theme.isDark());
+  });
 }
 
 themeBtn.addEventListener('click', () => {
-  const isDark = document.body.classList.toggle('dark-theme');
-  localStorage.setItem('theme', isDark ? 'dark' : 'light');
-  if (isDark) {
-    document.getElementById('theme-icon-sun').classList.remove('hidden');
-    document.getElementById('theme-icon-moon').classList.add('hidden');
-  } else {
-    document.getElementById('theme-icon-sun').classList.add('hidden');
-    document.getElementById('theme-icon-moon').classList.remove('hidden');
+  const isDark = !document.documentElement.classList.contains('dark-theme');
+  try {
+    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+  } catch {
+    // выбор не сохранится, но тема всё равно переключится
   }
+  applyTheme(isDark);
 });
 
 // --- ADVANCED FORM TOGGLE ---
