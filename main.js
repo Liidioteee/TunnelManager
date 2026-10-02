@@ -14,6 +14,7 @@ import { checkLocalPort } from './lib/localPort.js';
 import { DEFAULT_SETTINGS, sanitizeSettings } from './lib/settings.js';
 import { readBackupFile } from './lib/backupFile.js';
 import { createUptimeTicker } from './lib/uptimeTicker.js';
+import { APP_USER_MODEL_ID } from './lib/appInfo.js';
 import { isTrustedSenderUrl, safeExternalUrl } from './lib/ipcSecurity.js';
 
 dns.setDefaultResultOrder('ipv4first');
@@ -21,6 +22,12 @@ dns.setDefaultResultOrder('ipv4first');
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const APP_INDEX_URL = pathToFileURL(path.join(__dirname, 'index.html')).href;
+
+// Windows показывает уведомления только приложению с AppUserModelID,
+// совпадающим с идентификатором установленного ярлыка
+if (process.platform === 'win32') {
+  app.setAppUserModelId(APP_USER_MODEL_ID);
+}
 
 const gotTheLock = app.requestSingleInstanceLock();
 
