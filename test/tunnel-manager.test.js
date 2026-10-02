@@ -284,3 +284,20 @@ test('importConfigs: не больше 1000 записей за раз', () => {
   assert.match(res.error, /не больше 1000/);
   assert.deepEqual(store.get('configs'), []);
 });
+
+test('checkPorts при изменении порта шлёт только статус, без всего списка', async () => {
+  const { manager, tunnels, deps, events } = makeManager({ configs: [makeConfig(), makeConfig({ id: 'c2' })] });
+  const started = manager.start('c1');
+  tunnels[0].succeed();
+  await started;
+  await flush();
+  const configsBefore = events.configs.length;
+  const statusesBefore = events.status.length;
+
+  deps.portOpen = false;
+  await manager.checkPorts();
+
+  assert.equal(events.configs.length, configsBefore, 'полный список не рассылается');
+  assert.equal(events.status.length, statusesBefore + 1);
+  assert.equal(events.status.at(-1).id, 'c1');
+});

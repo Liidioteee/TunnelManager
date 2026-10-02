@@ -986,6 +986,11 @@ window.api.onTunnelStatus((data) => {
     config.status = data.status;
   }
   updateStatsStrip();
+
+  // Статус влияет на то, попадает ли карточка под фильтр «по статусу»
+  if (filterStatus.value !== 'all') {
+    renderTunnels();
+  }
 });
 
 window.api.onConfigsUpdated((configs) => {

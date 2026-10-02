@@ -219,6 +219,27 @@ test('настройки: сохраняются из окна, посторон
   assert.deepEqual(await page.evaluate(() => window.api.getSettings()), saved);
 });
 
+test('фильтр по статусу обновляется сам, когда локальный порт закрывается', async (t) => {
+  const local = await startLocalApp(t);
+  const { api } = await startWorkingLocaltunnel(t);
+  const app = await launchApp(t, { env: { TUNNEL_MANAGER_LT_SERVER: api.host } });
+  const id = await createTunnel(app.page, { name: 'Filtered', port: local.port });
+  await toggleTunnel(app.page, id);
+  await waitForCard(app.page, id, c => c.statusText === 'Активен');
+
+  await app.page.evaluate(() => {
+    const select = document.getElementById('filter-status');
+    select.value = 'warning';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  assert.equal(await cardInfo(app.page, id), null, 'активный туннель не подходит под фильтр');
+
+  await close(local.server); // локальное приложение остановилось
+  const info = await waitForCard(app.page, id, c => c !== null && c.statusType === 'warning',
+    { message: 'карточка появилась в отфильтрованном списке', timeout: 15000 });
+  assert.match(info.statusText, /недоступен/);
+});
+
 async function waitUntil(predicate, timeout = 10000) {
   const deadline = Date.now() + timeout;
   while (!predicate()) {
