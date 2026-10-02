@@ -324,3 +324,24 @@ test('число запросов берётся из метрик cloudflared �
   await waitFor(() => increments.reduce((a, b) => a + b, 0) === 5);
   assert.ok(increments.every(n => n > 0));
 });
+
+test('при завершении cloudflared до подключения в ошибке указана его причина', { skip: fakeCloudflaredSkip }, async (t) => {
+  const dir = makeTmpDir(t);
+  installFakeCloudflared(dir, [
+    'echo "2026-10-02T16:47:42Z INF Requesting new quick Tunnel on trycloudflare.com..." >&2',
+    'echo "quick tunnel provisioning failed with status 429" >&2',
+    'exit 1'
+  ].join('\n'));
+  const tunnel = new CFTunnel({ port: 1, binDir: dir });
+  const err = await new Promise(resolve => tunnel.open(resolve));
+  assert.match(err.message, /кодом 1/);
+  assert.match(err.message, /quick tunnel provisioning failed with status 429/);
+});
+
+test('строка ERR из лога cloudflared попадает в текст ошибки без даты', { skip: fakeCloudflaredSkip }, async (t) => {
+  const dir = makeTmpDir(t);
+  installFakeCloudflared(dir, 'echo "2026-10-02T16:47:42Z ERR Failed to fetch features error=\\"timeout\\"" >&2\nexit 1');
+  const tunnel = new CFTunnel({ port: 1, binDir: dir });
+  const err = await new Promise(resolve => tunnel.open(resolve));
+  assert.match(err.message, /: ERR Failed to fetch features error="timeout"$/);
+});
