@@ -11,6 +11,10 @@ import electronPath from 'electron';
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const LAUNCH_TIMEOUT = 30000;
 
+// E2E_APP_EXECUTABLE — путь к собранному приложению (electron-builder):
+// тогда тесты проверяют именно сборку, с кодом внутри app.asar
+const PACKAGED_APP = process.env.E2E_APP_EXECUTABLE || '';
+
 function killProcessGroup(proc) {
   if (process.platform === 'win32') return;
   try {
@@ -20,9 +24,27 @@ function killProcessGroup(proc) {
   }
 }
 
+// Очистка в обратном порядке (как defer): t.after выполняет хуки в порядке
+// регистрации, а папку данных можно удалять только после остановки
+// приложения, которое в неё пишет
+const cleanupStacks = new WeakMap();
+function defer(t, fn) {
+  let stack = cleanupStacks.get(t);
+  if (!stack) {
+    stack = [];
+    cleanupStacks.set(t, stack);
+    t.after(async () => {
+      while (stack.length) await stack.pop()();
+    });
+  }
+  stack.push(fn);
+}
+
 export function makeUserDataDir(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tm-e2e-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  // процессы Chromium (например, crashpad) могут ещё мгновение писать
+  // в папку после остановки приложения — удаляем с повторами
+  defer(t, () => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
   return dir;
 }
 
@@ -92,14 +114,14 @@ class Page {
 // пользователя не затрагиваются) и возвращает управление его окном
 export async function launchApp(t, { userDataDir, env = {} } = {}) {
   const dataDir = userDataDir || makeUserDataDir(t);
-  const proc = spawn(electronPath, [
+  const args = [
     // В контейнерах и на CI песочница Chromium часто недоступна
     '--no-sandbox',
     '--disable-gpu',
     `--user-data-dir=${dataDir}`,
-    '--remote-debugging-port=0',
-    APP_ROOT
-  ], {
+    '--remote-debugging-port=0'
+  ];
+  const proc = spawn(PACKAGED_APP || electronPath, PACKAGED_APP ? args : [...args, APP_ROOT], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '', ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
     // Своя группа процессов: при очистке убиваем и потомков приложения
@@ -131,7 +153,7 @@ export async function launchApp(t, { userDataDir, env = {} } = {}) {
       return result;
     }
   };
-  t.after(async () => {
+  defer(t, async () => {
     if (proc.exitCode === null && proc.signalCode === null) {
       proc.kill('SIGKILL');
       await exited;
