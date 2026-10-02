@@ -31,6 +31,11 @@ const requestStats = {};
 if (!gotTheLock) {
   app.quit();
 } else {
+  logger.configure({
+    logDir: path.join(app.getPath('userData'), 'logs'),
+    openPath: (dir) => shell.openPath(dir)
+  });
+
   const store = new Store();
 
   if (!store.has('configs')) {
@@ -290,6 +295,7 @@ if (!gotTheLock) {
 
     if (provider === 'cf') {
       tunnel = new CFTunnel({
+        binDir: app.getPath('userData'),
         port: parseInt(config.port, 10),
         localHost,
         localProtocol,
